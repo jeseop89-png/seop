@@ -34,6 +34,22 @@ st.markdown(
         border-color: #4dd2ff;
         color: #ffffff;
     }
+    /* 모바일에서 st.columns가 세로로 쌓이지 않고, PC처럼 가로 배치를 유지한 채
+       옆으로 스크롤해서 보도록 강제함 (좁은 화면에서 컬럼이 자동으로 쌓이는
+       Streamlit 기본 동작을 막음) */
+    @media (max-width: 900px) {
+        div[data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 6px;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+            min-width: 108px;
+            flex: 0 0 auto !important;
+            width: auto !important;
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -96,7 +112,7 @@ def save_watchlist():
 # ==========================================
 # ⚙️ 현재가는 실시간 크롤링 + 52주 최고가는 yfinance 계산
 # ==========================================
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=50)
 def get_korean_index_final(code):
     ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
     ticker = ticker_map.get(code)
@@ -139,7 +155,7 @@ def get_korean_index_final(code):
     return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
 
 
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=50)
 def get_index_data(ticker):
     try:
         time.sleep(0.01)
@@ -424,7 +440,7 @@ def make_gauge_svg(score, width=140, height=76, r=58):
 # 🔄 상단/중단/하단 시세 영역을 fragment로 분리
 #   -> 10초마다 이 영역만 새로고침되고, 아래 포트폴리오는 영향 안받음
 # ==========================================
-@st.fragment(run_every=30)
+@st.fragment(run_every=60)
 def render_market_overview():
     # 2. 상단 지수 구역 (가로 7칸)
     cols = st.columns(7)
@@ -975,7 +991,7 @@ def get_naver_stock_price(ticker):
 # ==========================================
 # 💱 현재 원/달러 환율 (직투계좌 원화환산 · 환차익 계산용)
 # ==========================================
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=50)
 def get_usd_krw_rate():
     try:
         live = get_yf_live_price("USDKRW=X")
@@ -1302,7 +1318,7 @@ def compute_portfolio_rows(holdings):
     return rows, total_buy_amount, total_eval_amount, fx_summary
 
 
-@st.cache_data(ttl=25)
+@st.cache_data(ttl=50)
 def get_prev_close(ticker):
     """전일 종가 조회 (당일 등락률 계산용)"""
     try:
@@ -1414,7 +1430,7 @@ def add_watchlist_dialog():
             st.rerun()
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=60)
 def render_my_watchlist():
     """사용자가 직접 추가/삭제하는, 보유 여부와 무관한 관심종목 리스트"""
     is_shown = st.session_state.section_expanded.get("watchlist", True)
@@ -1465,7 +1481,7 @@ def render_my_watchlist():
                 st.rerun()
 
 
-@st.fragment(run_every=30)
+@st.fragment(run_every=60)
 def render_holdings_board():
     """모든 포트폴리오에 실제로 담긴 종목을 중복 없이 모아 보여주는 보유종목 보드"""
     seen = {}
