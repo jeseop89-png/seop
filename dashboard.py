@@ -288,16 +288,26 @@ def get_cnn_fear_greed():
 # ==========================================
 @st.cache_data(ttl=3600 * 3)
 def fetch_fred_series(series_id):
-    try:
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        res = requests.get(url, headers=headers, timeout=5)
-        lines = [l for l in res.text.strip().split("\n") if l.strip()]
-        rows = [l.split(",") for l in lines[1:]]
-        valid = [(d, float(v)) for d, v in rows if v not in (".", "")]
-        return valid if valid else None
-    except Exception:
-        return None
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/csv,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    for attempt in range(2):  # 클라우드 환경에서 첫 시도가 타임아웃/일시적 오류로 실패하는 경우가 있어 한 번 더 시도
+        try:
+            res = requests.get(url, headers=headers, timeout=10)
+            res.raise_for_status()
+            lines = [l for l in res.text.strip().split("\n") if l.strip()]
+            rows = [l.split(",") for l in lines[1:]]
+            valid = [(d, float(v)) for d, v in rows if v not in (".", "")]
+            if valid:
+                return valid
+        except Exception:
+            if attempt == 0:
+                time.sleep(1)
+                continue
+    return None
 
 
 @st.cache_data(ttl=3600 * 3)
