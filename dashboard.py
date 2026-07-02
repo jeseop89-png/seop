@@ -8,6 +8,7 @@ import json
 import os
 import pandas as pd
 import math
+import concurrent.futures
 from datetime import datetime, time as dtime
 from zoneinfo import ZoneInfo
 
@@ -442,6 +443,33 @@ def make_gauge_svg(score, width=140, height=76, r=58):
 # ==========================================
 @st.fragment(run_every=60)
 def render_market_overview():
+    # ⚡ 아래에서 순서대로 하나씩 불러오면 20개 가까운 외부 요청이 직렬로 쌓여서
+    # 느려지므로, 먼저 전부 동시에(병렬로) 미리 가져와 캐시를 채워둠.
+    # 이후 코드는 그대로 각 함수를 다시 호출하지만, 캐시에 이미 있어서 즉시 반환됨.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as _warm_pool:
+        _warm_jobs = [
+            _warm_pool.submit(get_korean_index_final, "KOSPI"),
+            _warm_pool.submit(get_korean_index_final, "KOSDAQ"),
+            _warm_pool.submit(get_index_data, "^GSPC"),
+            _warm_pool.submit(get_index_data, "^IXIC"),
+            _warm_pool.submit(get_index_data, "^SOX"),
+            _warm_pool.submit(get_index_data, "^N225"),
+            _warm_pool.submit(get_index_data, "BTC-USD"),
+            _warm_pool.submit(get_index_data, "^VIX"),
+            _warm_pool.submit(get_index_data, "SHY"),
+            _warm_pool.submit(get_index_data, "^TNX"),
+            _warm_pool.submit(get_index_data, "DX-Y.NYB"),
+            _warm_pool.submit(get_index_data, "SI=F"),
+            _warm_pool.submit(get_index_data, "USDKRW=X"),
+            _warm_pool.submit(get_index_data, "CL=F"),
+            _warm_pool.submit(get_index_data, "GC=F"),
+            _warm_pool.submit(get_safe_rates_engine),
+            _warm_pool.submit(get_cnn_fear_greed),
+            _warm_pool.submit(get_high_yield_spread),
+            _warm_pool.submit(get_global_m2),
+        ]
+        concurrent.futures.wait(_warm_jobs)
+
     # 2. 상단 지수 구역 (가로 7칸)
     cols = st.columns(7)
     target_indices = {
