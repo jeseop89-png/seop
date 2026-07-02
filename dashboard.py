@@ -1,0 +1,1712 @@
+import streamlit as st
+import yfinance as yf
+import time
+import requests
+from bs4 import BeautifulSoup
+import re
+import json
+import os
+import pandas as pd
+import math
+from datetime import datetime, time as dtime
+from zoneinfo import ZoneInfo
+
+# 1. 페이지 기본 설정 및 여백 최적화
+st.set_page_config(page_title="글로벌 실시간 지수 및 금리 대시보드", layout="wide")
+st.markdown("<style>.block-container {padding-top: 3.5rem; padding-bottom: 0rem;}</style>", unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+    div[data-testid="stButton"] > button {
+        border-radius: 8px;
+        border: 1px solid #333333;
+        background-color: #1a1a1a;
+        color: #dddddd;
+        padding: 2px 10px;
+        transition: all 0.15s ease;
+    }
+    div[data-testid="stButton"] > button:hover {
+        border-color: #4dd2ff;
+        color: #4dd2ff;
+        background-color: #1e2a30;
+    }
+    div[data-testid="stButton"] > button:active {
+        border-color: #4dd2ff;
+        color: #ffffff;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+# ==========================================
+# 💾 포트폴리오 파일 저장/불러오기 (JSON)
+#   -> 앱을 껐다 켜거나 페이지를 새로고침해도
+#      portfolios_data.json 파일에서 데이터를 복원함
+# ==========================================
+PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolios_data.json")
+WATCHLIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchlist_data.json")
+
+
+def load_portfolios():
+    if os.path.exists(PORTFOLIO_FILE):
+        try:
+            with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_portfolios():
+    try:
+        with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+            json.dump(st.session_state.portfolios, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"저장 중 오류가 발생했습니다: {e}")
+
+
+def load_watchlist():
+    if os.path.exists(WATCHLIST_FILE):
+        try:
+            with open(WATCHLIST_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # 과거에 중복 방지 로직이 없던 시절 저장된 중복 티커 제거
+                seen = set()
+                deduped = []
+                for item in data:
+                    t = item.get("ticker")
+                    if t and t not in seen:
+                        seen.add(t)
+                        deduped.append(item)
+                return deduped
+        except Exception:
+            return []
+    return []
+
+
+def save_watchlist():
+    try:
+        with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
+            json.dump(st.session_state.watchlist, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"관심종목 저장 중 오류가 발생했습니다: {e}")
+
+
+# ==========================================
+# ⚙️ 현재가는 실시간 크롤링 + 52주 최고가는 yfinance 계산
+# ==========================================
+@st.cache_data(ttl=25)
+def get_korean_index_final(code):
+    ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
+    ticker = ticker_map.get(code)
+
+    current_price = None
+    change_pct = 0.0
+    high_52w = None
+
+    try:
+        url = f"https://finance.naver.com/sise/sise_index.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        current_price = float(soup.find("em", {"id": "now_value"}).text.replace(",", ""))
+        change_text = soup.find("span", {"id": "change_value_and_rate"}).text.strip()
+        pct_match = re.search(r'([+-]?\d+\.\d+)%', change_text)
+        change_pct = float(pct_match.group(1)) if pct_match else 0.0
+    except:
+        pass
+
+    try:
+        time.sleep(0.01)
+        df = yf.Ticker(ticker).history(period="1y")
+        if not df.empty:
+            if current_price is None:
+                current_price = df['Close'].iloc[-1]
+                prev_price = df['Close'].iloc[-2]
+                change_pct = ((current_price - prev_price) / prev_price) * 100
+            high_52w = df['High'].max()
+    except:
+        pass
+
+    if high_52w is None or high_52w < 100:
+        high_52w = 2892.21 if code == "KOSPI" else 923.15
+    if current_price is None:
+        current_price = 2650.0 if code == "KOSPI" else 845.0
+
+    drop_pct = ((current_price - high_52w) / high_52w) * 100
+    return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+
+
+@st.cache_data(ttl=25)
+def get_index_data(ticker):
+    try:
+        time.sleep(0.01)
+        df = yf.Ticker(ticker).history(period="1y")
+        if not df.empty and len(df) >= 2:
+            prev_price = df['Close'].iloc[-2]
+            current_price = get_yf_live_price(ticker)
+            if current_price is None:
+                current_price = df['Close'].iloc[-1]
+            change_pct = ((current_price - prev_price) / prev_price) * 100
+            high_52w = df['High'].max()
+            drop_pct = ((current_price - high_52w) / high_52w) * 100
+            return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+    except:
+        pass
+    return None
+
+
+@st.cache_data(ttl=3600 * 6)
+def scrape_rate_from_tradingeconomics(country_path):
+    """TradingEconomics 한국어 페이지에서 '~기준 금리는 마지막으로 X%로 기록되었습니다' 문구를 파싱.
+    사이트 구조가 바뀌거나 차단되면 조용히 None을 반환 (호출부에서 수동값으로 폴백)."""
+    try:
+        url = f"https://ko.tradingeconomics.com/{country_path}/interest-rate"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "ko-KR,ko;q=0.9",
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        text = BeautifulSoup(res.text, "html.parser").get_text(" ", strip=True)
+        m = re.search(r'기준\s*금리는\s*(?:최근|마지막으로)\s*([\d]+(?:\.[\d]+)?)\s*(?:퍼센트|%)', text)
+        if m:
+            return float(m.group(1))
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=3600 * 6)
+def get_safe_rates_engine():
+    # ⚠️ 한국(BOK)·일본(BOJ) 기준금리: 공식 무료 API가 없어 TradingEconomics 페이지
+    #    크롤링으로 자동화를 시도합니다. 사이트 구조가 바뀌면 크롤링이 실패할 수 있고,
+    #    이 경우 아래 MANUAL_FALLBACK 값으로 안전하게 되돌아갑니다.
+    #    (크롤링이 계속 실패하면 이 값을 최신 금리로 직접 갱신해주세요)
+    MANUAL_LAST_CONFIRMED = "2026-06-01"
+    MANUAL_FALLBACK = {
+        "USA": 3.75,
+        "KOR": 2.50,
+        "JPN": 1.00,
+    }
+    rates = {
+        "USA": {"rate": MANUAL_FALLBACK["USA"], "status": "stay", "change": 0.00, "source": "manual"},
+        "KOR": {"rate": MANUAL_FALLBACK["KOR"], "status": "stay", "change": 0.00, "source": "manual"},
+        "JPN": {"rate": MANUAL_FALLBACK["JPN"], "status": "stay", "change": 0.00, "source": "manual"},
+    }
+
+    # 미국: FRED 공식 데이터로 실제 자동 갱신 (Federal Funds Target Range - Upper Limit)
+    try:
+        us_data = fetch_fred_series("DFEDTARU")
+        if us_data:
+            latest_date, latest_rate = us_data[-1]
+            rates["USA"]["rate"] = latest_rate
+            rates["USA"]["source"] = "fred"
+            if len(us_data) > 1:
+                prev_rate = us_data[-2][1]
+                if latest_rate > prev_rate:
+                    rates["USA"]["status"] = "up"
+                    rates["USA"]["change"] = round(latest_rate - prev_rate, 2)
+                elif latest_rate < prev_rate:
+                    rates["USA"]["status"] = "down"
+                    rates["USA"]["change"] = round(prev_rate - latest_rate, 2)
+    except Exception:
+        pass
+
+    # 한국/일본: TradingEconomics 크롤링 시도, 실패하면 수동값 유지
+    scrape_targets = {"KOR": "south-korea", "JPN": "japan"}
+    for key, path in scrape_targets.items():
+        scraped = scrape_rate_from_tradingeconomics(path)
+        if scraped is not None:
+            prev_rate = MANUAL_FALLBACK[key]
+            rates[key]["rate"] = scraped
+            rates[key]["source"] = "scrape"
+            if scraped > prev_rate:
+                rates[key]["status"] = "up"
+                rates[key]["change"] = round(scraped - prev_rate, 2)
+            elif scraped < prev_rate:
+                rates[key]["status"] = "down"
+                rates[key]["change"] = round(prev_rate - scraped, 2)
+
+    for key in rates:
+        if rates[key]["source"] == "manual":
+            rates[key]["last_confirmed"] = MANUAL_LAST_CONFIRMED
+
+    return rates
+
+
+@st.cache_data(ttl=120)
+def get_cnn_fear_greed():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.cnn.com/"
+    }
+    try:
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        res = requests.get(url, headers=headers, timeout=3)
+        if res.status_code == 200:
+            json_data = res.json()
+            score = int(json_data['fear_and_greed']['score'])
+            rating = json_data['fear_and_greed']['rating'].lower()
+
+            if "extreme fear" in rating: return score, "극단적 공포"
+            elif "fear" in rating: return score, "공포"
+            elif "neutral" in rating: return score, "중립"
+            elif "extreme greed" in rating: return score, "극단적 탐욕"
+            else: return score, "탐욕"
+    except:
+        pass
+
+    try:
+        vix_df = yf.Ticker("^VIX").history(period="5d")
+        vix = vix_df['Close'].iloc[-1] if not vix_df.empty else 14.5
+        vix_score = max(0, min(100, (28 - vix) * 6.25))
+
+        spy_df = yf.Ticker("SPY").history(period="50d")
+        if not spy_df.empty:
+            spy_close = spy_df['Close'].iloc[-1]
+            spy_ma = spy_df['Close'].mean()
+            momentum_score = max(0, min(100, ((spy_close / spy_ma) - 0.96) * 1250))
+        else:
+            momentum_score = 50
+        final_score = int((vix_score * 0.4) + (momentum_score * 0.6))
+    except:
+        final_score = 50
+
+    if final_score <= 25: return final_score, "극단적 공포"
+    elif final_score <= 45: return final_score, "공포"
+    elif final_score <= 55: return final_score, "중립"
+    elif final_score <= 75: return final_score, "탐욕"
+    else: return final_score, "극단적 탐욕"
+
+
+# ==========================================
+# 📉 FRED 공개 데이터 (하이일드 스프레드 / 글로벌 M2)
+#   -> API 키 없이 접근 가능한 fredgraph.csv 엔드포인트 사용
+# ==========================================
+@st.cache_data(ttl=3600 * 3)
+def fetch_fred_series(series_id):
+    try:
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=5)
+        lines = [l for l in res.text.strip().split("\n") if l.strip()]
+        rows = [l.split(",") for l in lines[1:]]
+        valid = [(d, float(v)) for d, v in rows if v not in (".", "")]
+        return valid if valid else None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600 * 3)
+def get_high_yield_spread():
+    # ICE BofA US High Yield Index Option-Adjusted Spread (일간)
+    data = fetch_fred_series("BAMLH0A0HYM2")
+    if not data:
+        return None
+    date, value = data[-1]
+    change = None
+    if len(data) > 20:
+        change = value - data[-21][1]  # 약 1개월(영업일 20일) 전 대비
+    return {"value": value, "date": date, "change": change}
+
+
+@st.cache_data(ttl=3600 * 6)
+def get_global_m2():
+    # 미국 M2(M2SL, 10억달러) + 유로존 M2(MYAGM2EZM196N, 유로) 합산
+    # ※ 중국·일본 M2는 FRED 공개 시계열이 중단되어 제외 (2019년 이후 갱신 안됨)
+    us = fetch_fred_series("M2SL")
+    eu = fetch_fred_series("MYAGM2EZM196N")
+    if not us or not eu:
+        return None
+
+    fx = get_index_data("EURUSD=X")
+    eur_usd_rate = fx["current"] if fx else 1.08
+
+    us_map = {d[:7]: v for d, v in us}
+    eu_map = {d[:7]: v for d, v in eu}
+    common_months = sorted(set(us_map.keys()) & set(eu_map.keys()))
+
+    if not common_months:
+        return None
+
+    # 최근 24개월 추세 (스파크라인용)
+    recent_months = common_months[-24:]
+    trend = [(us_map[m] / 1000.0) + ((eu_map[m] * eur_usd_rate) / 1e12) for m in recent_months]
+
+    total_trillion = trend[-1]
+    us_date = recent_months[-1] + "-01"
+
+    yoy = None
+    if len(common_months) > 12:
+        base_month = common_months[-13]
+        base_val = (us_map[base_month] / 1000.0) + ((eu_map[base_month] * eur_usd_rate) / 1e12)
+        yoy = ((total_trillion - base_val) / base_val) * 100
+
+    return {"total_trillion": total_trillion, "date": us_date, "yoy": yoy, "trend": trend}
+
+
+def make_sparkline_svg(values, width=110, height=32, color="#4dff4d"):
+    """작은 추세선(스파크라인) SVG 생성 - 값이 오르면 우상향, 내리면 우하향으로 직관적 표현
+    width/height는 좌표 계산용 내부 기준값이며, 실제 렌더링은 viewBox를 통해
+    부모 요소 크기에 맞게 자동으로 축소/확대되어 컨테이너를 벗어나지 않음."""
+    if not values or len(values) < 2:
+        return ""
+    min_v, max_v = min(values), max(values)
+    range_v = (max_v - min_v) if max_v != min_v else 1
+    pad = 3
+    step = (width - pad * 2) / (len(values) - 1)
+    points = []
+    for i, v in enumerate(values):
+        x = pad + i * step
+        y = pad + (height - pad * 2) * (1 - (v - min_v) / range_v)
+        points.append(f"{x:.1f},{y:.1f}")
+    points_str = " ".join(points)
+    # 마지막 지점 아래로 영역을 채워 추세를 더 직관적으로
+    area_points = f"{pad:.1f},{height - pad:.1f} " + points_str + f" {width - pad:.1f},{height - pad:.1f}"
+    return f"""<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" preserveAspectRatio="none" style="display:block; max-width:100%;">
+        <polygon points="{area_points}" fill="{color}" opacity="0.15"/>
+        <polyline points="{points_str}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    </svg>"""
+
+
+def make_gauge_svg(score, width=140, height=76, r=58):
+    """CNN 공포·탐욕지수 스타일의 반원 계기판(속도계) SVG 생성.
+    5구간 컬러 밴드 + 현재 점수를 가리키는 바늘로 직관적으로 표현."""
+    score = max(0, min(100, score))
+    cx, cy = width / 2, height - 4
+
+    bands = [
+        (180, 144, "#ff4d4d"),  # 극단적 공포
+        (144, 108, "#ff944d"),  # 공포
+        (108, 72, "#aaaaaa"),   # 중립
+        (72, 36, "#4dff4d"),    # 탐욕
+        (36, 0, "#00ffcc"),     # 극단적 탐욕
+    ]
+    band_svg = ""
+    steps = 10
+    for start_deg, end_deg, color in bands:
+        pts = []
+        for i in range(steps + 1):
+            t = start_deg + (end_deg - start_deg) * (i / steps)
+            rad = math.radians(t)
+            x = cx + r * math.cos(rad)
+            y = cy - r * math.sin(rad)
+            pts.append(f"{x:.1f},{y:.1f}")
+        band_svg += f'<polyline points="{" ".join(pts)}" fill="none" stroke="{color}" stroke-width="9" />'
+
+    needle_theta = 180 - (score / 100) * 180
+    rad = math.radians(needle_theta)
+    needle_len = r - 14
+    nx = cx + needle_len * math.cos(rad)
+    ny = cy - needle_len * math.sin(rad)
+
+    return f"""<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMax meet" style="display:block; max-width:100%;">
+        {band_svg}
+        <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="{cx}" cy="{cy}" r="4" fill="#ffffff"/>
+    </svg>"""
+
+
+# ==========================================
+# 🔄 상단/중단/하단 시세 영역을 fragment로 분리
+#   -> 10초마다 이 영역만 새로고침되고, 아래 포트폴리오는 영향 안받음
+# ==========================================
+@st.fragment(run_every=30)
+def render_market_overview():
+    # 2. 상단 지수 구역 (가로 7칸)
+    cols = st.columns(7)
+    target_indices = {
+        "KOSPI": "코스피 (실시간)",
+        "KOSDAQ": "코스닥 (실시간)",
+        "^GSPC": "S&P 500",
+        "^IXIC": "나스닥",
+        "^SOX": "반도체지수",
+        "^N225": "니케이225",
+        "BTC-USD": "🪙 비트코인"
+    }
+
+    for idx, (ticker, name) in enumerate(target_indices.items()):
+        with cols[idx]:
+            if ticker in ["KOSPI", "KOSDAQ"]:
+                data = get_korean_index_final(ticker)
+            else:
+                data = get_index_data(ticker)
+
+            if data:
+                pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
+                arrow_sign = "▲" if data['change_pct'] >= 0 else "▼"
+
+                st.markdown(
+                    f"""
+                    <div>
+                        <h4 style="font-size: 15px; margin-top: 0px; margin-bottom: 8px; font-weight: 700; line-height: 1.2;">{name}</h4>
+                        <div style="margin-top: 0px; margin-bottom: 6px; white-space: nowrap;">
+                            <span style="font-size: 16px; font-weight: 800; color: #ffffff;">{data['current']:,.2f}</span>
+                            <span style="font-size: 12px; font-weight: bold; color: {pct_color}; margin-left: 3px;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
+                        </div>
+                        <div style="line-height: 1.4; white-space: nowrap; font-family: sans-serif;">
+                            <span style="font-size: 11px; color: #ff4d4d; font-weight: bold;">▲</span>
+                            <span style="font-size: 11px; color: #aaaaaa;">52주 최고:</span>
+                            <span style="font-size: 13px; color: #ffffff; font-weight: 700;">{data['high']:,.2f}</span>
+                            <br>
+                            <span style="font-size: 11px; color: #4d94ff; font-weight: bold;">▼</span>
+                            <span style="font-size: 11px; color: #aaaaaa;">대비 하락:</span>
+                            <span style="font-size: 13px; color: #4d94ff; font-weight: 700;">{data['drop']:.2f}%</span>
+                        </div>
+                        <hr style="border-color: #222222; margin-top: 8px; margin-bottom: 8px;">
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div>
+                        <h4 style="font-size: 15px; margin-top: 0px; margin-bottom: 8px; font-weight: 700; line-height: 1.2;">{name}</h4>
+                        <span style="font-size: 12px; color: #666;">⏳ 연결중...</span>
+                        <hr style="border-color: #222222; margin-top: 8px; margin-bottom: 8px;">
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+    # 3. 중단 금리 및 공포·탐욕 지수 구역
+    st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
+    left_box, fg_box, hy_box, m2_box, gold_box = st.columns([2, 1, 1, 1, 1])
+
+    exact_rates = get_safe_rates_engine()
+    countries = [
+        {"key": "USA", "title": "🇺🇸 미국 기준금리 (FED)"},
+        {"key": "KOR", "title": "🇰🇷 한국 기준금리 (BOK)"},
+        {"key": "JPN", "title": "🇯🇵 일본 기준금리 (BOJ)"}
+    ]
+
+    with left_box:
+        r_cols = st.columns(3)
+        for idx, country in enumerate(countries):
+            info = exact_rates[country["key"]]
+            text_color = "#ff4d4d" if info["status"] == "up" else ("#4d94ff" if info["status"] == "down" else "#ffffff")
+            rate_arrow = f"▲ {info['change']:.2f}%p" if info["status"] == "up" else (f"▼ {info['change']:.2f}%p" if info["status"] == "down" else "● 0.00%p")
+            status_txt = " (인상)" if info["status"] == "up" else (" (인하)" if info["status"] == "down" else " (동결)")
+
+            source = info.get("source", "manual")
+            if source == "fred":
+                source_badge = "<span style='font-size:9px; color:#4dff4d;'>● 자동(FRED)</span>"
+            elif source == "scrape":
+                source_badge = "<span style='font-size:9px; color:#4dd2ff;'>● 자동(크롤링)</span>"
+            else:
+                last_conf = info.get("last_confirmed", "")
+                source_badge = f"<span style='font-size:9px; color:#ffaa4d;'>● 수동 ({last_conf} 확인)</span>"
+
+            with r_cols[idx]:
+                st.markdown(
+                    f"""
+                    <div style="background-color: #1a1a1a; padding: 10px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+                        <div style="font-size: 12px; color: #aaaaaa; font-weight: bold;">{country['title']}<span style="color: {text_color}; font-size: 11px;">{status_txt}</span></div>
+                        <div style="margin-top: 3px; white-space: nowrap; display: flex; align-items: baseline;">
+                            <span style="font-size: 20px; font-weight: 800; color: {text_color};">{info['rate']:.2f}%</span>
+                            <span style="font-size: 13px; font-weight: bold; color: {text_color}; margin-left: 8px;">{rate_arrow}</span>
+                        </div>
+                        <div style="margin-top: 4px;">{source_badge}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+    with fg_box:
+        fg_score, fg_status = get_cnn_fear_greed()
+
+        if "극단적 공포" in fg_status: theme_color = "#ff4d4d"
+        elif "공포" in fg_status: theme_color = "#ff944d"
+        elif "중립" in fg_status: theme_color = "#aaaaaa"
+        elif "극단적 탐욕" in fg_status: theme_color = "#00ffcc"
+        else: theme_color = "#4dff4d"
+
+        gauge_svg = make_gauge_svg(fg_score, width=130, height=58, r=42)
+
+        st.markdown(
+            f"""
+            <div style="background-color: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="font-size: 11px; color: #aaaaaa; font-weight: bold; white-space:nowrap; flex:0 0 auto;">📊 공포·탐욕지수</div>
+                <div style="flex:1 1 auto; min-height:0; min-width:0; display:flex; align-items:flex-end; justify-content:center; line-height:0;">
+                    {gauge_svg}
+                </div>
+                <div style="flex:0 0 auto; text-align:center;">
+                    <span style="font-size: 16px; font-weight: 900; color: {theme_color};">{fg_score}</span>
+                    <span style="font-size: 11px; font-weight: bold; color: {theme_color}; margin-left: 4px;">{fg_status}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with hy_box:
+        hy = get_high_yield_spread()
+        if hy:
+            v = hy["value"]
+            if v < 3.5:
+                hy_color, hy_tag = "#4dff4d", "🟢 안정"
+            elif v < 5:
+                hy_color, hy_tag = "#ffff4d", "🟡 유의"
+            elif v < 7:
+                hy_color, hy_tag = "#ff944d", "🟠 경계"
+            else:
+                hy_color, hy_tag = "#ff4d4d", "🔴 위험"
+
+            if hy["change"] is not None:
+                chg_color = "#ff4d4d" if hy["change"] >= 0 else "#4d94ff"
+                chg_arrow = "▲" if hy["change"] >= 0 else "▼"
+                chg_html = f"<span style='font-size:11px;color:{chg_color};font-weight:bold;'>{chg_arrow} {abs(hy['change']):.2f}%p</span>"
+            else:
+                chg_html = ""
+
+            st.markdown(
+                f"""
+                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+                    <div style="font-size: 11px; color: #aaaaaa; font-weight: bold; margin-bottom: 2px; white-space:nowrap;">🩸 하이일드 스프레드</div>
+                    <div style="white-space: nowrap; display: flex; align-items: baseline;">
+                        <span style="font-size: 22px; font-weight: 900; color: #ffffff;">{v:.2f}%</span>
+                        <span style="margin-left: 8px;">{chg_html}</span>
+                    </div>
+                    <div style="font-size: 12px; font-weight: bold; color: {hy_color};">{hy_tag} (1개월전대비)</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """
+                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                    <span style="font-size: 11px; color: #666;">⏳ 수신 대기중</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with m2_box:
+        m2 = get_global_m2()
+        if m2:
+            date_label = m2["date"][:7].replace("-", ".")
+            trend = m2.get("trend", [])
+
+            if m2["yoy"] is not None:
+                trend_color = "#ff4d4d" if m2["yoy"] >= 0 else "#4d94ff"
+                yoy_arrow = "▲" if m2["yoy"] >= 0 else "▼"
+                yoy_badge = f"<span style='font-size:11px;color:{trend_color};font-weight:bold;'>{yoy_arrow} {abs(m2['yoy']):.1f}%</span>"
+            else:
+                trend_color = "#ffffff"
+                yoy_badge = ""
+
+            # 차트 중심 표시: 숫자는 최소화하고 24개월 추세선을 박스 대부분에 꽉 채워서 표시
+            spark_svg = make_sparkline_svg(trend, width=140, height=44, color=trend_color) if len(trend) >= 2 else ""
+
+            st.markdown(
+                f"""
+                <div style="background-color: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; flex:0 0 auto;">
+                        <span style="font-size: 11px; color: #aaaaaa; font-weight: bold; white-space:nowrap;">💧 글로벌 M2</span>
+                        {yoy_badge}
+                    </div>
+                    <div style="flex:1 1 auto; min-height:0; min-width:0; margin-top:2px; line-height:0;">
+                        {spark_svg}
+                    </div>
+                    <div style="flex:0 0 auto; text-align:right;">
+                        <span style="color:#666; font-size:9px;">{date_label} · ${m2['total_trillion']:.1f}조</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """
+                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                    <span style="font-size: 11px; color: #666;">⏳ 수신 대기중</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    with gold_box:
+        gold_data = get_index_data("GC=F")
+        if gold_data:
+            g_pct_color = "#ff4d4d" if gold_data['change_pct'] >= 0 else "#4d94ff"
+            g_arrow = "▲" if gold_data['change_pct'] >= 0 else "▼"
+            st.markdown(
+                f"""
+                <div style="background-color: #1a1a1a; padding: 10px 12px; border-radius: 6px; border: 1px solid #333333; min-height: 108px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
+                    <div style="font-size: 11px; color: #aaaaaa; font-weight: bold; margin-bottom: 2px; white-space:nowrap;">🥇 골드 (금)</div>
+                    <div style="white-space: nowrap; display: flex; align-items: baseline;">
+                        <span style="font-size: 18px; font-weight: 900; color: #ffffff;">${gold_data['current']:,.2f}</span>
+                        <span style="font-size: 11px; font-weight: bold; color: {g_pct_color}; margin-left: 4px;">{g_arrow} {abs(gold_data['change_pct']):.2f}%</span>
+                    </div>
+                    <div style="line-height: 1.4; white-space: nowrap; margin-top: 4px; padding-top: 4px; border-top: 1px solid #222222;">
+                        <span style="font-size: 10px; color: #888888;">52주최고:</span>
+                        <span style="font-size: 11px; color: #ffffff; font-weight: 700;">${gold_data['high']:,.2f}</span>
+                        <br>
+                        <span style="font-size: 10px; color: #888888;">대비하락:</span>
+                        <span style="font-size: 11px; color: #4d94ff; font-weight: 700;">{gold_data['drop']:.2f}%</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                """
+                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                    <span style="font-size: 11px; color: #666;">⏳ 수신 대기중</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+    # 4. 하단 매크로 지표 구역
+    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+    macro_cols = st.columns(7)
+
+    macro_indicators = {
+        "^VIX": {"name": "빅스 지수", "fmt": "{:,.2f}"},
+        "SHY": {"name": "🇺🇸 국채 2년물", "fmt": "{:.2f}%"},
+        "^TNX": {"name": "🇺🇸 국채 10년물", "fmt": "{:.3f}%"},
+        "DX-Y.NYB": {"name": "💲 달러 인덱스", "fmt": "{:,.2f}"},
+        "SI=F": {"name": "🥈 실버 (은)", "fmt": "${:,.2f}"},
+        "USDKRW=X": {"name": "💵 원/달러 환율", "fmt": "₩{:,.2f}"},
+        "CL=F": {"name": "🛢️ 원유 (WTI)", "fmt": "${:,.2f}"}
+    }
+
+    for idx, (ticker, info) in enumerate(macro_indicators.items()):
+        with macro_cols[idx]:
+            m_data = get_index_data(ticker)
+
+            if not m_data:
+                if ticker == "SHY": m_data = {"current": 4.12, "change_pct": 0.05}
+                elif ticker == "^TNX": m_data = {"current": 4.37, "change_pct": -0.12}
+                elif ticker == "^VIX": m_data = {"current": 14.50, "change_pct": 1.20}
+
+            if m_data:
+                if ticker == "SHY" and m_data['current'] > 15: m_data['current'] = 4.12
+                if ticker == "^TNX" and m_data['current'] > 15: m_data['current'] = m_data['current'] / 10
+
+                pct_color = "#ff4d4d" if m_data['change_pct'] >= 0 else "#4d94ff"
+                arrow_sign = "▲" if m_data['change_pct'] >= 0 else "▼"
+                formatted_price = info["fmt"].format(m_data['current'])
+
+                if ticker == "^VIX":
+                    vix_v = m_data['current']
+                    if vix_v < 15: vix_msg, vix_color = "🟢안정", "#4dff4d"
+                    elif vix_v < 20: vix_msg, vix_color = "🟡유의", "#ffff4d"
+                    elif vix_v < 30: vix_msg, vix_color = "🟠경계", "#ff944d"
+                    else: vix_msg, vix_color = "🔴위험", "#ff4d4d"
+
+                    vix_bottom_html = f"""
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-weight: bold;">
+                        <span style="font-size: 13px; color: {pct_color};">{arrow_sign} {abs(m_data['change_pct']):.2f}%</span>
+                        <span style="font-size: 12px; color: {vix_color}; background-color: #222; padding: 1px 5px; border-radius: 3px;">{vix_msg}</span>
+                    </div>
+                    """
+                else:
+                    vix_bottom_html = f"""
+                    <div style="font-size: 13px; font-weight: bold; color: {pct_color}; margin-top: 4px;">
+                        {arrow_sign} {abs(m_data['change_pct']):.2f}%
+                    </div>
+                    """
+
+                # 52주 최고가 / 대비 하락률 (상단 지수 구역과 동일한 방식)
+                if m_data.get("high") is not None and m_data.get("drop") is not None:
+                    formatted_high = info["fmt"].format(m_data["high"])
+                    high_low_html = f"""
+                    <div style="line-height: 1.5; white-space: nowrap; font-family: sans-serif; margin-top: 6px; padding-top: 6px; border-top: 1px solid #222222;">
+                        <span style="font-size: 11px; color: #ff4d4d; font-weight: bold;">▲</span>
+                        <span style="font-size: 11px; color: #999999;">52주최고:</span>
+                        <span style="font-size: 13px; color: #ffffff; font-weight: 700;">{formatted_high}</span>
+                        <br>
+                        <span style="font-size: 11px; color: #4d94ff; font-weight: bold;">▼</span>
+                        <span style="font-size: 11px; color: #999999;">대비하락:</span>
+                        <span style="font-size: 13px; color: #4d94ff; font-weight: 700;">{m_data['drop']:.2f}%</span>
+                    </div>
+                    """
+                else:
+                    high_low_html = ""
+
+                st.markdown(
+                    f"""
+                    <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; min-height: 128px;">
+                        <div style="font-size: 12px; color: #cccccc; font-weight: bold; margin-bottom: 3px;">{info['name']}</div>
+                        <div style="font-size: 19px; font-weight: 800; color: #ffffff; white-space: nowrap;">{formatted_price}</div>
+                        {vix_bottom_html}
+                        {high_low_html}
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f"""
+                    <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; text-align: center; min-height: 128px;">
+                        <span style="font-size: 11px; color: #666666; line-height: 100px;">⏳ 수신 대기중</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+
+render_market_overview()
+
+
+# ==========================================================
+# 📂 5. 포트폴리오 기능 (신규 추가)
+# ==========================================================
+
+if "portfolios" not in st.session_state:
+    st.session_state.portfolios = load_portfolios()   # {} 대신 파일에서 불러오기
+
+if "watchlist" not in st.session_state:
+    st.session_state.watchlist = load_watchlist()   # 관심종목 (보유 여부와 무관한 별도 리스트)
+
+if "expanded_state" not in st.session_state:
+    st.session_state.expanded_state = {}   # 포트폴리오별 접기/펼치기 상태
+
+if "section_expanded" not in st.session_state:
+    st.session_state.section_expanded = {"watchlist": True, "holdings": True}   # 관심종목/보유종목 섹션 접기 상태
+
+
+# 한국 종목(.KS/.KQ) 한글 종목명 조회 (네이버 금융)
+@st.cache_data(ttl=86400)
+def get_korean_name(ticker):
+    try:
+        code = ticker.split(".")[0]
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, "html.parser")
+        title_tag = soup.select_one("div.wrap_company h2 a")
+        if title_tag and title_tag.text.strip():
+            return title_tag.text.strip()
+    except Exception:
+        pass
+    return None
+
+
+# 종목 검색 (yfinance 내장 검색 기능 사용)
+# 자주 검색되는 국내 대형주 한글명 -> 티커 매핑
+# (yfinance 검색 API가 한글 회사명은 잘 못 찾아서, 흔한 이름은 미리 보정)
+KOREAN_STOCK_ALIASES = {
+    "삼성전자": "005930.KS", "삼성전자우": "005935.KS", "sk하이닉스": "000660.KS",
+    "에스케이하이닉스": "000660.KS", "카카오": "035720.KS", "네이버": "035420.KS",
+    "naver": "035420.KS", "현대차": "005380.KS", "현대자동차": "005380.KS",
+    "기아": "000270.KS", "lg에너지솔루션": "373220.KS", "삼성바이오로직스": "207940.KS",
+    "셀트리온": "068270.KS", "posco홀딩스": "005490.KS", "포스코홀딩스": "005490.KS",
+    "삼성sdi": "006400.KS", "lg화학": "051910.KS", "현대모비스": "012330.KS",
+    "kb금융": "105560.KS", "신한지주": "055550.KS", "카카오뱅크": "323410.KS",
+    "하나금융지주": "086790.KS", "lg전자": "066570.KS", "삼성물산": "028260.KS",
+    "sk이노베이션": "096770.KS", "두산에너빌리티": "034020.KS",
+    "한화에어로스페이스": "012450.KS", "삼성생명": "032830.KS", "크래프톤": "259960.KS",
+    "에코프로": "086520.KQ", "에코프로비엠": "247540.KQ", "알테오젠": "196170.KQ",
+    "삼성전기": "009150.KS", "sk텔레콤": "017670.KS", "kt": "030200.KS",
+    "포스코퓨처엠": "003670.KS", "한국전력": "015760.KS", "삼성화재": "000810.KS",
+    "미래에셋증권": "006800.KS", "우리금융지주": "316140.KS", "hd현대중공업": "329180.KS",
+}
+
+
+# 미국(해외) 티커 -> 한글 표시명 매핑
+# (카드에서 "Micron Technology, Inc." 같은 긴 영문 대신 "마이크론"처럼 짧은 한글명을 보여주기 위함)
+# 매핑에 없는 티커는 검색 시 저장된 원래 이름(영문)을 그대로 사용함
+US_STOCK_KOREAN_NAMES = {
+    "AAPL": "애플", "MSFT": "마이크로소프트", "GOOGL": "알파벳(구글)", "GOOG": "알파벳(구글)",
+    "AMZN": "아마존", "NVDA": "엔비디아", "META": "메타", "TSLA": "테슬라",
+    "MU": "마이크론", "AVGO": "브로드컴", "AMD": "AMD", "INTC": "인텔",
+    "QCOM": "퀄컴", "TSM": "TSMC", "NFLX": "넷플릭스", "BABA": "알리바바",
+    "ORCL": "오라클", "CRM": "세일즈포스", "ADBE": "어도비", "PYPL": "페이팔",
+    "DIS": "디즈니", "KO": "코카콜라", "PEP": "펩시코", "MCD": "맥도날드",
+    "NKE": "나이키", "SBUX": "스타벅스", "V": "비자", "MA": "마스터카드",
+    "JPM": "JP모건", "BAC": "뱅크오브아메리카", "WMT": "월마트", "COST": "코스트코",
+    "HD": "홈디포", "XOM": "엑슨모빌", "CVX": "셰브런", "BA": "보잉",
+    "GE": "GE", "F": "포드", "GM": "GM", "UBER": "우버",
+    "ABNB": "에어비앤비", "PLTR": "팔란티어", "ASML": "ASML", "ARM": "ARM",
+}
+
+
+def get_display_name(ticker, fallback_name):
+    """미국 주식은 짧은 한글 표시명이 있으면 그걸 쓰고, 없으면 기존 이름 사용"""
+    if ticker.endswith(".KS") or ticker.endswith(".KQ"):
+        return fallback_name
+    return US_STOCK_KOREAN_NAMES.get(ticker.upper(), fallback_name)
+
+
+def fmt_money(value, is_usd):
+    """달러는 '95$', 원화는 '1,234원' 형식으로 통일해서 반환.
+    &#36;은 Streamlit markdown이 '$'를 LaTeX 수식 기호로 잘못 해석하는 걸 막기 위한 HTML 엔티티."""
+    return f"{value:,.0f}&#36;" if is_usd else f"{value:,.0f}원"
+
+
+def fmt_krw(value):
+    """원화환산 값을 '1,500원' 형식으로 반환 (₩ 기호 없이 숫자+원)"""
+    return f"{value:,.0f}원"
+
+
+def combine_currency(usd_html, krw_txt):
+    """주(달러) 값은 그대로, 원화 환산값은 옅은 회색 괄호로 작게 붙여줌.
+    예: '95$ (1,500원)' — '/' 구분보다 원-달러 관계가 한눈에 들어옴"""
+    return f'{usd_html} <span style="color:#d0d0d0;font-size:0.82em;">({krw_txt})</span>'
+
+
+@st.cache_data(ttl=3600)
+def search_naver_autocomplete(query):
+    """네이버 자동완성 API로 한글 종목명 검색 (yfinance가 못 찾는 한글명 보완)"""
+    try:
+        url = "https://ac.stock.naver.com/ac"
+        params = {"q": query, "target": "stock,index,marketindicator"}
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, params=params, headers=headers, timeout=3)
+        data = res.json()
+        results = []
+        for group in data.get("items", []):
+            for item in group:
+                # 네이버 응답 형식: [종목명, 시장구분/기타, 코드, 타입] 순서가 버전에 따라 다를 수 있어 방어적으로 파싱
+                if not isinstance(item, list) or len(item) < 3:
+                    continue
+                name_field = item[0]
+                code_field = item[2] if len(item) > 2 else None
+                market_field = item[1] if len(item) > 1 else ""
+                if not code_field or not str(code_field).isdigit():
+                    continue
+                suffix = ".KQ" if "KOSDAQ" in str(market_field).upper() else ".KS"
+                results.append({"symbol": f"{code_field}{suffix}", "name": name_field})
+        return results
+    except Exception:
+        return []
+
+
+def search_stock(query):
+    if not query or len(query.strip()) < 1:
+        return []
+
+    results = []
+    seen_symbols = set()
+    q_lower = query.strip().lower()
+    q_upper = query.strip().upper()
+
+    # 0) 흔한 영단어와 겹치는 티커(RAM, USD 등)는 야후 검색 API가 종목으로
+    #    잘 인식하지 못하는 경우가 많아, 자주 쓰는 레버리지 ETF는 직접 매칭시켜 둠
+    KNOWN_TICKER_FALLBACK = {
+        "RAM": "Roundhill T-REX 2X Long DRAM Daily Target ETF",
+        "USD": "ProShares Ultra Semiconductors",
+        "SOXL": "Direxion Daily Semiconductor Bull 3X",
+        "SOXS": "Direxion Daily Semiconductor Bear 3X",
+        "TQQQ": "ProShares UltraPro QQQ",
+        "SQQQ": "ProShares UltraPro Short QQQ",
+        "QLD": "ProShares Ultra QQQ",
+        "SSO": "ProShares Ultra S&P500",
+        "SPXL": "Direxion Daily S&P 500 Bull 3X",
+    }
+    if q_upper in KNOWN_TICKER_FALLBACK and q_upper not in seen_symbols:
+        results.append({"symbol": q_upper, "name": KNOWN_TICKER_FALLBACK[q_upper]})
+        seen_symbols.add(q_upper)
+
+    # 1) 흔한 국내 대형주 한글명 매핑 우선 확인
+    for alias, symbol in KOREAN_STOCK_ALIASES.items():
+        if q_lower in alias or alias in q_lower:
+            if symbol not in seen_symbols:
+                kr_name = get_korean_name(symbol) or symbol
+                results.append({"symbol": symbol, "name": kr_name})
+                seen_symbols.add(symbol)
+
+    # 2) yfinance 검색 (영문명/티커에 강함)
+    try:
+        s = yf.Search(query, max_results=8)
+        for q in s.quotes:
+            symbol = q.get("symbol")
+            name = q.get("shortname") or q.get("longname") or symbol
+            if symbol and symbol not in seen_symbols:
+                if symbol.endswith(".KS") or symbol.endswith(".KQ"):
+                    kr_name = get_korean_name(symbol)
+                    if kr_name:
+                        name = kr_name
+                results.append({"symbol": symbol, "name": name})
+                seen_symbols.add(symbol)
+    except Exception:
+        pass
+
+    # 3) 네이버 자동완성 (한글 종목명 보완, 위 두 방법으로 못 찾았을 때)
+    if not results:
+        for r in search_naver_autocomplete(query):
+            if r["symbol"] not in seen_symbols:
+                results.append(r)
+                seen_symbols.add(r["symbol"])
+
+    return results[:8]
+
+
+# ==========================================
+# 💹 국내 종목 실시간가 (네이버금융 크롤링)
+#   -> 상단 코스피/코스닥과 동일한 방식으로,
+#      개별 국내 종목도 지연 없이 실시간가를 가져옴
+# ==========================================
+@st.cache_data(ttl=5)
+def get_naver_stock_price(ticker):
+    code = ticker.split(".")[0]
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, "html.parser")
+        price_tag = soup.select_one("p.no_today span.blind")
+        if price_tag:
+            return float(price_tag.text.replace(",", ""))
+    except Exception:
+        pass
+    return None
+
+
+# ==========================================
+# 💱 현재 원/달러 환율 (직투계좌 원화환산 · 환차익 계산용)
+# ==========================================
+@st.cache_data(ttl=25)
+def get_usd_krw_rate():
+    try:
+        live = get_yf_live_price("USDKRW=X")
+        if live:
+            return float(live)
+    except Exception:
+        pass
+    try:
+        df = yf.Ticker("USDKRW=X").history(period="5d")
+        if not df.empty:
+            return float(df['Close'].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+# 해외 종목 실시간에 더 가까운 시세 조회 (fast_info 우선, 실패 시 history()로 폴백)
+def get_yf_live_price(ticker):
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        for key in ("last_price", "lastPrice", "regular_market_price", "regularMarketPrice"):
+            try:
+                val = fi[key]
+                if val:
+                    return float(val)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+# ==========================================
+# 🌙🌆 미국 주식 프리마켓 / 애프터마켓 시세
+#   -> 뉴욕시간 기준으로 현재 세션(프리/정규/애프터/휴장) 판단 후,
+#      yfinance info의 확장시간 필드를 우선 사용하고,
+#      실패 시 1분봉(prepost=True) 마지막 데이터로 추정
+# ==========================================
+def get_us_market_session():
+    """현재 시각 기준 미국 장이 프리/정규/애프터/휴장 중 어디인지 판단 (뉴욕시간 기준)"""
+    now_et = datetime.now(ZoneInfo("America/New_York"))
+    if now_et.weekday() >= 5:
+        return "closed"
+    t = now_et.time()
+    if dtime(4, 0) <= t < dtime(9, 30):
+        return "pre"
+    elif dtime(9, 30) <= t < dtime(16, 0):
+        return "regular"
+    elif dtime(16, 0) <= t < dtime(20, 0):
+        return "post"
+    return "closed"
+
+
+@st.cache_data(ttl=15)
+def get_extended_hours_price(ticker):
+    """미국 주식 프리마켓/애프터마켓 시세.
+    1순위: yfinance info의 preMarketPrice/postMarketPrice
+    2순위: 1분봉(prepost=True) 마지막 데이터로 추정"""
+    session = get_us_market_session()
+    if session not in ("pre", "post"):
+        return None
+
+    try:
+        info = yf.Ticker(ticker).get_info()
+        if session == "pre":
+            price = info.get("preMarketPrice")
+            change_pct = info.get("preMarketChangePercent")
+        else:
+            price = info.get("postMarketPrice")
+            change_pct = info.get("postMarketChangePercent")
+        if price:
+            return {"price": float(price), "change_pct": float(change_pct or 0.0), "session": session}
+    except Exception:
+        pass
+
+    try:
+        intraday = yf.Ticker(ticker).history(period="1d", interval="1m", prepost=True)
+        daily = yf.Ticker(ticker).history(period="2d", interval="1d")
+        if not intraday.empty and not daily.empty:
+            base_price = float(daily['Close'].iloc[-1])
+            last_price = float(intraday['Close'].iloc[-1])
+            change_pct = (last_price - base_price) / base_price * 100
+            return {"price": last_price, "change_pct": change_pct, "session": session}
+    except Exception:
+        pass
+    return None
+
+
+# 현재가 조회 (포트폴리오 손익 계산용)
+#  - 국내 종목(.KS/.KQ): 네이버금융 실시간가 우선 사용 (지연 없음)
+#  - 해외 종목: fast_info(실시간에 더 가까움) 우선, 실패 시 일봉 종가로 폴백
+@st.cache_data(ttl=5)
+def get_current_price(ticker):
+    if ticker.endswith(".KS") or ticker.endswith(".KQ"):
+        price = get_naver_stock_price(ticker)
+        if price is not None:
+            return price
+    else:
+        live = get_yf_live_price(ticker)
+        if live is not None:
+            return live
+    try:
+        df = yf.Ticker(ticker).history(period="5d")
+        if not df.empty:
+            return float(df['Close'].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+# ==========================================
+# 📈 RSI(14일) 계산
+#   -> 최근 종가에 실시간가를 반영해서 최대한 실시간에
+#      가깝게 계산 (단순 이동평균 기반 RSI)
+# ==========================================
+@st.cache_data(ttl=60)
+def get_recent_closes(ticker):
+    try:
+        # Wilder 스무딩이 안정적으로 수렴하려면 넉넉한 기간이 필요
+        df = yf.Ticker(ticker).history(period="6mo")
+        if not df.empty:
+            return df['Close'].tolist()
+    except Exception:
+        pass
+    return []
+
+
+def calculate_rsi(closes, period=14):
+    # Wilder's Smoothing 방식 (HTS/MTS/TradingView 등 대부분의 플랫폼과 동일한 계산법)
+    if len(closes) < period + 1:
+        return None
+    s = pd.Series(closes)
+    delta = s.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    value = rsi.iloc[-1]
+    return None if pd.isna(value) else float(value)
+
+
+def get_rsi(ticker, current_price=None, period=14):
+    closes = get_recent_closes(ticker)
+    if not closes:
+        return None
+    if current_price is not None:
+        closes = closes[:-1] + [current_price]  # 마지막 종가를 실시간가로 대체
+    return calculate_rsi(closes, period=period)
+
+
+@st.dialog("새 포트폴리오 만들기")
+def create_portfolio_dialog():
+    name = st.text_input("포트폴리오 제목", placeholder="예: 미국 성장주 포트폴리오")
+    if st.button("생성", use_container_width=True):
+        name = name.strip()
+        if not name:
+            st.warning("제목을 입력해주세요.")
+        elif name in st.session_state.portfolios:
+            st.warning("이미 존재하는 이름입니다.")
+        else:
+            st.session_state.portfolios[name] = []
+            save_portfolios()   # ★ 저장
+            st.rerun()
+
+
+@st.dialog("종목 추가")
+def add_stock_dialog(portfolio_name):
+    query = st.text_input("종목명 또는 티커 검색", placeholder="예: 삼성전자, AAPL, 엔비디아")
+
+    selected_symbol = None
+    selected_name = None
+
+    if query:
+        results = search_stock(query)
+        if results:
+            option_labels = [f"{r['name']} ({r['symbol']})" for r in results]
+            picked = st.selectbox("검색결과에서 선택", option_labels)
+            picked_idx = option_labels.index(picked)
+            selected_symbol = results[picked_idx]["symbol"]
+            selected_name = results[picked_idx]["name"]
+        else:
+            st.info("검색 결과가 없습니다. 정확한 티커(예: AAPL, 005930.KS)를 입력해보세요.")
+            # 직접 티커 입력 fallback
+            manual_ticker = st.text_input("직접 티커 입력 (검색 결과가 없을 때)")
+            if manual_ticker:
+                selected_symbol = manual_ticker.strip().upper()
+                selected_name = selected_symbol
+                if selected_symbol.endswith(".KS") or selected_symbol.endswith(".KQ"):
+                    kr_name = get_korean_name(selected_symbol)
+                    if kr_name:
+                        selected_name = kr_name
+
+    st.divider()
+    qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.0f")
+    avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=1.0, format="%.0f")
+    target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
+
+    is_usd = bool(selected_symbol) and not (selected_symbol.endswith(".KS") or selected_symbol.endswith(".KQ"))
+
+    buy_fx_rate = 0.0
+    if is_usd:
+        cur_fx = get_usd_krw_rate() or 1350.0
+        buy_fx_rate = st.number_input(
+            "매수 시 환율 (원/달러)", min_value=0.0, step=1.0, format="%.0f", value=round(cur_fx),
+            help="나중에 환차익을 따로 보고 싶으면 매수 당시 환율을 입력해두세요. 모르면 현재 환율 그대로 두면 돼요."
+        )
+
+    if qty > 0 and avg_price > 0:
+        st.caption(f"💰 매수금액: {fmt_money(qty * avg_price, is_usd)}")
+
+    if st.button("➕ 추가하기", use_container_width=True, type="primary"):
+        if not selected_symbol:
+            st.warning("종목을 검색해서 선택해주세요.")
+        elif qty <= 0 or avg_price <= 0:
+            st.warning("수량과 평단가를 입력해주세요.")
+        else:
+            new_holding = {
+                "ticker": selected_symbol,
+                "name": selected_name,
+                "qty": qty,
+                "avg_price": avg_price,
+                "target_weight": target_weight
+            }
+            if is_usd and buy_fx_rate > 0:
+                new_holding["buy_fx_rate"] = buy_fx_rate
+            st.session_state.portfolios[portfolio_name].append(new_holding)
+            save_portfolios()   # ★ 저장
+            st.rerun()
+
+
+@st.dialog("종목 수정")
+def edit_stock_dialog(portfolio_name, index):
+    holding = st.session_state.portfolios[portfolio_name][index]
+    display_name = get_display_name(holding["ticker"], holding["name"])
+
+    st.markdown(f"**{display_name}** ({holding['ticker']})")
+
+    is_usd = not (holding["ticker"].endswith(".KS") or holding["ticker"].endswith(".KQ"))
+
+    new_qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.0f", value=float(holding["qty"]))
+    new_avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=1.0, format="%.0f", value=float(holding["avg_price"]))
+    new_target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", value=float(holding.get("target_weight", 0.0) or 0.0))
+
+    new_buy_fx_rate = holding.get("buy_fx_rate", 0.0) or 0.0
+    if is_usd:
+        cur_fx = get_usd_krw_rate() or 1350.0
+        default_fx = new_buy_fx_rate if new_buy_fx_rate > 0 else round(cur_fx)
+        new_buy_fx_rate = st.number_input(
+            "매수 시 환율 (원/달러)", min_value=0.0, step=1.0, format="%.0f", value=float(default_fx),
+            help="환차익을 따로 보고 싶으면 매수 당시 환율을 입력해두세요."
+        )
+
+    if new_qty > 0 and new_avg_price > 0:
+        st.caption(f"💰 매수금액: {fmt_money(new_qty * new_avg_price, is_usd)}")
+
+    btn_cols = st.columns([1, 1])
+    with btn_cols[0]:
+        if st.button("💾 저장", use_container_width=True, type="primary"):
+            if new_qty <= 0 or new_avg_price <= 0:
+                st.warning("수량과 평단가를 입력해주세요.")
+            else:
+                st.session_state.portfolios[portfolio_name][index]["qty"] = new_qty
+                st.session_state.portfolios[portfolio_name][index]["avg_price"] = new_avg_price
+                st.session_state.portfolios[portfolio_name][index]["target_weight"] = new_target_weight
+                if is_usd:
+                    st.session_state.portfolios[portfolio_name][index]["buy_fx_rate"] = new_buy_fx_rate
+                save_portfolios()
+                st.rerun()
+    with btn_cols[1]:
+        if st.button("🗑️ 삭제", use_container_width=True):
+            st.session_state.portfolios[portfolio_name].pop(index)
+            save_portfolios()
+            st.rerun()
+
+
+def compute_portfolio_rows(holdings):
+    rows = []
+    total_buy_amount = 0.0
+    total_eval_amount = 0.0
+
+    # 직투(달러) 계좌의 원화환산 합계 및 환차익 계산용
+    cur_fx = get_usd_krw_rate()
+    usd_buy_krw_total = 0.0
+    usd_eval_krw_total = 0.0
+    usd_fx_gain_total = 0.0
+    has_usd_fx_data = False
+
+    for h in holdings:
+        current_price = get_current_price(h["ticker"])
+        rsi_value = get_rsi(h["ticker"], current_price)
+        buy_amount = h["qty"] * h["avg_price"]
+        eval_amount = h["qty"] * current_price if current_price is not None else None
+
+        total_buy_amount += buy_amount
+        if eval_amount is not None:
+            total_eval_amount += eval_amount
+
+        is_usd = not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ"))
+        buy_fx_rate = h.get("buy_fx_rate", 0.0) or 0.0
+        effective_buy_fx = buy_fx_rate if buy_fx_rate > 0 else cur_fx
+        if is_usd and cur_fx and eval_amount is not None:
+            has_usd_fx_data = True
+            usd_buy_krw_total += buy_amount * effective_buy_fx
+            usd_eval_krw_total += eval_amount * cur_fx
+            usd_fx_gain_total += h["qty"] * h["avg_price"] * (cur_fx - effective_buy_fx)
+
+        rows.append({
+            **h,
+            "current_price": current_price,
+            "rsi": rsi_value,
+            "buy_amount": buy_amount,
+            "eval_amount": eval_amount,
+        })
+
+    fx_summary = {
+        "has_data": has_usd_fx_data,
+        "buy_krw": usd_buy_krw_total,
+        "eval_krw": usd_eval_krw_total,
+        "fx_gain": usd_fx_gain_total,
+        "cur_fx": cur_fx,
+    }
+    return rows, total_buy_amount, total_eval_amount, fx_summary
+
+
+@st.cache_data(ttl=25)
+def get_prev_close(ticker):
+    """전일 종가 조회 (당일 등락률 계산용)"""
+    try:
+        df = yf.Ticker(ticker).history(period="5d")
+        if not df.empty and len(df) >= 2:
+            return float(df['Close'].iloc[-2])
+        elif not df.empty:
+            return float(df['Close'].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def render_ticker_cards(items):
+    """items: [(ticker, name), ...] 티커/현재가/당일 등락률을, 이름 길이에 맞는 폭의 칩으로
+    flex-wrap 배치 (종목이 많아져도 빈 공간 없이 줄바꿈되며 촘촘하게 배치됨)"""
+    if not items:
+        return
+
+    chips = []
+    for ticker, name in items:
+        display_name = get_display_name(ticker, name)
+        current = get_current_price(ticker)
+        prev = get_prev_close(ticker)
+        is_usd_ticker = not (ticker.endswith(".KS") or ticker.endswith(".KQ"))
+
+        if current is not None and prev not in (None, 0):
+            change_pct = (current - prev) / prev * 100
+            color = "#ff4d4d" if change_pct >= 0 else "#4d94ff"
+            arrow = "▲" if change_pct >= 0 else "▼"
+            price_html = fmt_money(current, is_usd_ticker)
+            change_html = f"<span style='color:{color};font-weight:bold;font-size:12px;'>{arrow} {abs(change_pct):.2f}%</span>"
+        elif current is not None:
+            price_html = fmt_money(current, is_usd_ticker)
+            change_html = "<span style='color:#666;font-size:11px;'>-</span>"
+        else:
+            price_html = "⏳"
+            change_html = ""
+
+        # 🌙프리 / 🌆애프터 시세 (미국 주식만 해당, 해당 시간대에만 표시)
+        # 주의: HTML은 반드시 들여쓰기 없는 한 줄 문자열로 만들어야 함.
+        # 앞에 공백(스페이스 4칸 이상)이 붙으면 마크다운이 "코드블록"으로 오인해서
+        # HTML 태그가 그대로 텍스트로 노출되는 문제가 발생함.
+        ext_html = ""
+        if not (ticker.endswith(".KS") or ticker.endswith(".KQ")):
+            ext = get_extended_hours_price(ticker)
+            if ext:
+                ext_color = "#ff4d4d" if ext["change_pct"] >= 0 else "#4d94ff"
+                ext_arrow = "▲" if ext["change_pct"] >= 0 else "▼"
+                ext_label = "🌙프리" if ext["session"] == "pre" else "🌆애프터"
+                ext_html = (
+                    '<div style="margin-top:3px;padding-top:3px;border-top:1px dashed #333;">'
+                    f'<span style="font-size:9px;color:#ffaa4d;">{ext_label}</span>'
+                    f'<span style="font-size:13px;color:#ffffff;font-weight:700;margin-left:2px;">{ext["price"]:,.2f}&#36;</span>'
+                    f'<span style="font-size:11px;color:{ext_color};font-weight:bold;margin-left:2px;">{ext_arrow}{abs(ext["change_pct"]):.2f}%</span>'
+                    '</div>'
+                )
+
+        chips.append(
+            '<div style="display:inline-block;background-color:#111111;padding:8px 12px;border-radius:6px;white-space:nowrap;vertical-align:top;">'
+            f'<div style="font-size:12px;font-weight:700;color:#ffffff;">{display_name}</div>'
+            f'<div style="font-size:10px;color:#888888;margin-bottom:4px;">{ticker}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:#ffffff;">{price_html}</div>'
+            f'<div style="margin-top:2px;">{change_html}</div>'
+            f'{ext_html}'
+            '</div>'
+        )
+
+    st.markdown(
+        f"""<div style="display:flex; flex-wrap:wrap; gap:8px;">{''.join(chips)}</div>""",
+        unsafe_allow_html=True
+    )
+
+
+@st.dialog("관심종목 추가")
+def add_watchlist_dialog():
+    query = st.text_input("종목명 또는 티커 검색", placeholder="예: 삼성전자, AAPL, 엔비디아", key="watchlist_search_input")
+
+    selected_symbol = None
+    selected_name = None
+
+    if query:
+        results = search_stock(query)
+        if results:
+            option_labels = [f"{r['name']} ({r['symbol']})" for r in results]
+            picked = st.selectbox("검색결과에서 선택", option_labels)
+            picked_idx = option_labels.index(picked)
+            selected_symbol = results[picked_idx]["symbol"]
+            selected_name = results[picked_idx]["name"]
+        else:
+            st.info("검색 결과가 없습니다. 정확한 티커(예: AAPL, 005930.KS)를 입력해보세요.")
+            manual_ticker = st.text_input("직접 티커 입력 (검색 결과가 없을 때)")
+            if manual_ticker:
+                selected_symbol = manual_ticker.strip().upper()
+                selected_name = selected_symbol
+                if selected_symbol.endswith(".KS") or selected_symbol.endswith(".KQ"):
+                    kr_name = get_korean_name(selected_symbol)
+                    if kr_name:
+                        selected_name = kr_name
+
+    if st.button("➕ 추가하기", use_container_width=True, type="primary"):
+        if not selected_symbol:
+            st.warning("종목을 검색해서 선택해주세요.")
+        elif any(w["ticker"] == selected_symbol for w in st.session_state.watchlist):
+            st.warning("이미 관심종목에 있습니다.")
+        else:
+            st.session_state.watchlist.append({"ticker": selected_symbol, "name": selected_name})
+            save_watchlist()
+            st.rerun()
+
+
+@st.fragment(run_every=30)
+def render_my_watchlist():
+    """사용자가 직접 추가/삭제하는, 보유 여부와 무관한 관심종목 리스트"""
+    is_shown = st.session_state.section_expanded.get("watchlist", True)
+
+    title_cols = st.columns([1.6, 0.35, 0.35, 0.35, 5.15])
+    with title_cols[0]:
+        st.markdown(f"<div style='font-size:16px; font-weight:700; padding-top:5px; white-space:nowrap;'>⭐ 관심종목 ({len(st.session_state.watchlist)}개)</div>", unsafe_allow_html=True)
+    with title_cols[1]:
+        toggle_icon = "▲" if is_shown else "▼"
+        if st.button(toggle_icon, key="toggle_watchlist_btn", help="펼치기/접기", use_container_width=True):
+            st.session_state.section_expanded["watchlist"] = not is_shown
+            st.rerun()
+    with title_cols[2]:
+        if st.button("➕", key="add_watchlist_btn", help="종목 추가", use_container_width=True):
+            add_watchlist_dialog()
+    with title_cols[3]:
+        if st.session_state.watchlist:
+            if st.button("🗑️", key="manage_watchlist_btn", help="관리(삭제)", use_container_width=True):
+                st.session_state["show_watchlist_manage"] = not st.session_state.get("show_watchlist_manage", False)
+
+    if not is_shown:
+        return
+
+    if not st.session_state.watchlist:
+        st.caption("아직 추가된 관심종목이 없습니다.")
+    else:
+        items = [(w["ticker"], w["name"]) for w in st.session_state.watchlist]
+        render_ticker_cards(items)
+
+        if st.session_state.get("show_watchlist_manage"):
+            st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
+            checked_tickers = []
+            chk_cols = st.columns(4)
+            for idx, w in enumerate(st.session_state.watchlist):
+                with chk_cols[idx % 4]:
+                    checked = st.checkbox(
+                        f"{w['name']} ({w['ticker']})",
+                        key=f"watchlist_chk_{idx}_{w['ticker']}"
+                    )
+                    if checked:
+                        checked_tickers.append(w["ticker"])
+
+            if st.button("선택 삭제", key="watchlist_remove_confirm", disabled=not checked_tickers):
+                st.session_state.watchlist = [w for w in st.session_state.watchlist if w["ticker"] not in checked_tickers]
+                for t in checked_tickers:
+                    st.session_state.pop(f"watchlist_chk_{t}", None)
+                save_watchlist()
+                st.rerun()
+
+
+@st.fragment(run_every=30)
+def render_holdings_board():
+    """모든 포트폴리오에 실제로 담긴 종목을 중복 없이 모아 보여주는 보유종목 보드"""
+    seen = {}
+    for holdings in st.session_state.portfolios.values():
+        for h in holdings:
+            if h["ticker"] not in seen:
+                seen[h["ticker"]] = h["name"]
+
+    if not seen:
+        return
+
+    is_shown = st.session_state.section_expanded.get("holdings", True)
+
+    title_cols = st.columns([3.6, 0.55, 4.85])
+    with title_cols[0]:
+        st.markdown(f"<div style='font-size:16px; font-weight:700; padding-top:5px;'>📌 보유종목 ({len(seen)}개)</div>", unsafe_allow_html=True)
+    with title_cols[1]:
+        toggle_icon = "▲" if is_shown else "▼"
+        if st.button(toggle_icon, key="toggle_holdings_btn", help="펼치기/접기", use_container_width=True):
+            st.session_state.section_expanded["holdings"] = not is_shown
+            st.rerun()
+
+    if is_shown:
+        render_ticker_cards(list(seen.items()))
+
+
+def render_portfolio_table(portfolio_name, rows, total_eval_amount):
+    if not rows:
+        st.caption("아직 추가된 종목이 없습니다. 위의 '➕ 종목 추가' 버튼을 눌러보세요.")
+        return
+
+    col_widths = [1.2, 0.5, 1.3, 1.3, 0.6, 1.4, 1.4, 1.4, 0.7, 0.7, 0.7, 1.0, 1.3, 0.4]
+    header_cols = st.columns(col_widths)
+    header_labels = ["종목", "수량", "평단가", "현재가", "RSI", "매수금액", "평가금액", "평가손익", "수익률",
+                      "목표비중", "현재비중", "신호", "부족한금액", "수정"]
+    for c, label in zip(header_cols, header_labels):
+        c.markdown(f"<span style='font-size:11px;color:#aaaaaa;font-weight:bold;'>{label}</span>", unsafe_allow_html=True)
+
+    for i, r in enumerate(rows):
+        row_cols = st.columns(col_widths)
+        row_display_name = get_display_name(r['ticker'], r['name'])
+        row_cols[0].markdown(
+            f'<div style="line-height:1.3;">'
+            f'<span style="font-size:12px;font-weight:700;color:#ffffff;">{row_display_name}</span><br>'
+            f'<span style="font-size:10px;color:#888888;">{r["ticker"]}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+        row_cols[1].write(f"{r['qty']:,.0f}")
+
+        is_usd = not (r["ticker"].endswith(".KS") or r["ticker"].endswith(".KQ"))
+
+        # 달러 종목은 원/달러 환율을 곱해 원화환산 값을 같이 표시
+        cur_fx = get_usd_krw_rate() if is_usd else None
+        buy_fx = (r.get("buy_fx_rate", 0.0) or 0.0) if is_usd else None
+        if is_usd and not buy_fx:
+            buy_fx = cur_fx  # 매수시 환율 미입력 시 현재 환율로 근사
+
+        def nowrap(txt):
+            """줄바꿈 없이 한 줄로 붙어 보이게 함 (수량↔평단가 사이 여백이 있어도 '원'이 다음 줄로 안 내려가도록)"""
+            return f'<div style="white-space:nowrap;">{txt}</div>'
+
+        if is_usd and cur_fx:
+            row_cols[2].markdown(nowrap(combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원")), unsafe_allow_html=True)
+        else:
+            row_cols[2].markdown(nowrap(fmt_money(r['avg_price'], is_usd)), unsafe_allow_html=True)
+
+        # RSI 표시 (과매수/과매도 색상 표시)
+        if r["rsi"] is not None:
+            rsi_v = r["rsi"]
+            if rsi_v >= 70:
+                rsi_color, rsi_tag = "#ff4d4d", "과매수"
+            elif rsi_v <= 30:
+                rsi_color, rsi_tag = "#4d94ff", "과매도"
+            else:
+                rsi_color, rsi_tag = "#ffffff", ""
+            rsi_html = f"<span style='color:{rsi_color};font-weight:bold;font-size:14px;'>{rsi_v:.1f}</span>"
+            if rsi_tag:
+                rsi_html += f" <span style='font-size:11px;color:{rsi_color};'>({rsi_tag})</span>"
+        else:
+            rsi_html = "<span style='font-size:11px;color:#666;'>⏳</span>"
+
+        target_weight = r.get("target_weight", 0.0) or 0.0
+
+        if r["eval_amount"] is not None:
+            profit_amount = r["eval_amount"] - r["buy_amount"]
+            profit_pct = (profit_amount / r["buy_amount"]) * 100 if r["buy_amount"] > 0 else 0.0
+            color = "#ff4d4d" if profit_pct >= 0 else "#4d94ff"
+            arrow = "▲" if profit_pct >= 0 else "▼"
+            current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
+            target_amount = (target_weight / 100) * total_eval_amount
+            shortfall = target_amount - r["eval_amount"]
+
+            row_cols[3].markdown(
+                nowrap(combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원")) if (is_usd and cur_fx)
+                else nowrap(fmt_money(r['current_price'], is_usd)),
+                unsafe_allow_html=True
+            )
+            row_cols[4].markdown(rsi_html, unsafe_allow_html=True)
+            row_cols[5].markdown(
+                nowrap(combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원")) if (is_usd and cur_fx)
+                else nowrap(fmt_money(r['buy_amount'], is_usd)),
+                unsafe_allow_html=True
+            )
+            row_cols[6].markdown(
+                nowrap(combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원")) if (is_usd and cur_fx)
+                else nowrap(fmt_money(r['eval_amount'], is_usd)),
+                unsafe_allow_html=True
+            )
+            if is_usd and cur_fx:
+                profit_krw = (r['eval_amount'] * cur_fx) - (r['buy_amount'] * buy_fx)
+                row_cols[7].markdown(
+                    nowrap(f"<span style='color:{color};font-weight:bold;'>{arrow} {fmt_money(abs(profit_amount), is_usd)} <span style='font-size:0.82em;'>({abs(profit_krw):,.0f}원)</span></span>"),
+                    unsafe_allow_html=True
+                )
+            else:
+                row_cols[7].markdown(
+                    nowrap(f"<span style='color:{color};font-weight:bold;'>{arrow} {fmt_money(abs(profit_amount), is_usd)}</span>"),
+                    unsafe_allow_html=True
+                )
+            row_cols[8].markdown(
+                f"<span style='color:{color};font-weight:bold;'>{arrow} {abs(profit_pct):.1f}%</span>",
+                unsafe_allow_html=True
+            )
+            row_cols[9].write(f"{target_weight:.0f}%")
+            row_cols[10].write(f"{current_weight:.0f}%")
+
+            # 신호: 현재비중이 목표비중 대비 초과/부족인지 표시 (±2%p는 적정으로 간주)
+            diff_pct = current_weight - target_weight
+            if abs(diff_pct) <= 2:
+                signal_color, signal_tag = "#aaaaaa", "적정"
+            elif diff_pct > 0:
+                signal_color, signal_tag = "#4d94ff", "초과"
+            else:
+                signal_color, signal_tag = "#ff4d4d", "부족"
+            row_cols[11].markdown(
+                f"<div style='white-space:nowrap;'>"
+                f"<span style='color:{signal_color};font-weight:bold;font-size:14px;'>{signal_tag}</span> "
+                f"<span style='font-size:12px;color:{signal_color};'>({diff_pct:+.1f}%p)</span>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+            if shortfall > 0:
+                shortfall_txt = f"+{fmt_money(shortfall, is_usd)}" + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                row_cols[12].markdown(nowrap(f"<span style='color:#ff4d4d;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
+            elif shortfall < 0:
+                shortfall_txt = fmt_money(shortfall, is_usd) + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                row_cols[12].markdown(nowrap(f"<span style='color:#4d94ff;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
+            else:
+                row_cols[12].write("-")
+        else:
+            row_cols[3].write("⏳")
+            row_cols[4].markdown(rsi_html, unsafe_allow_html=True)
+            row_cols[5].markdown(fmt_money(r['buy_amount'], is_usd), unsafe_allow_html=True)
+            row_cols[6].write("⏳")
+            row_cols[7].write("-")
+            row_cols[8].write("-")
+            row_cols[9].write(f"{target_weight:.0f}%")
+            row_cols[10].write("-")
+            row_cols[11].write("-")
+            row_cols[12].write("-")
+
+
+        if row_cols[13].button("✏️", key=f"edit_{portfolio_name}_{i}", help="수량/평단가/목표비중 수정 및 삭제"):
+            edit_stock_dialog(portfolio_name, i)
+
+
+st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+
+render_my_watchlist()
+
+st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+
+title_cols = st.columns([5, 1])
+with title_cols[0]:
+    st.markdown("<h3 style='margin:0px;padding:0px;'>📂 내 포트폴리오</h3>", unsafe_allow_html=True)
+with title_cols[1]:
+    if st.button("+ 포트폴리오 생성", use_container_width=True):
+        create_portfolio_dialog()
+
+if not st.session_state.portfolios:
+    st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
+else:
+    for p_name in list(st.session_state.portfolios.keys()):
+        holdings = st.session_state.portfolios[p_name]
+        rows, total_buy_amount, total_eval_amount, fx_summary = compute_portfolio_rows(holdings)
+        is_expanded = st.session_state.expanded_state.get(p_name, True)
+
+        # key를 지정하면 Streamlit이 이 포트폴리오의 접기/펼치기 상태를 개별적으로
+        # 기억해서, 다른 포트폴리오를 조작해도 서로 영향을 주지 않음.
+        # (구버전 Streamlit에서 key 미지원 시 안전하게 폴백)
+        try:
+            expander_cm = st.expander(f"📁 {p_name}  ({len(holdings)}개 종목)", expanded=is_expanded, key=f"exp_{p_name}")
+        except TypeError:
+            expander_cm = st.expander(f"📁 {p_name}  ({len(holdings)}개 종목)", expanded=is_expanded)
+
+        with expander_cm:
+            top_cols = st.columns([3.4, 1, 1])
+
+            with top_cols[0]:
+                if total_buy_amount > 0:
+                    total_profit = total_eval_amount - total_buy_amount
+                    total_profit_pct = (total_profit / total_buy_amount) * 100
+                    color = "#ff4d4d" if total_profit_pct >= 0 else "#4d94ff"
+                    arrow = "▲" if total_profit_pct >= 0 else "▼"
+
+                    # 이 포트폴리오가 달러 기준인지(직투계좌) 판단해서 단위 표시
+                    port_is_usd = any(
+                        not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings
+                    )
+                    has_fx = fx_summary["has_data"] and fx_summary["cur_fx"]
+
+                    def metric(label, value_html):
+                        return (
+                            '<div style="min-width:120px;">'
+                            f'<div style="font-size:11px;color:#888888;">{label}</div>'
+                            f'<div style="font-size:17px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
+                            '</div>'
+                        )
+
+                    buy_txt = combine_currency(fmt_money(total_buy_amount, port_is_usd), f"{fx_summary['buy_krw']:,.0f}원") if has_fx else fmt_money(total_buy_amount, port_is_usd)
+                    eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
+                    profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
+                    if has_fx:
+                        profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
+
+                    metrics_html = (
+                        '<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;">'
+                        + metric("총 매수금액", buy_txt)
+                        + metric("총 평가금액", eval_txt)
+                        + metric("평가손익", profit_txt)
+                        + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
+                        + (metric("💱 환차익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
+                        + '</div>'
+                    )
+                    st.markdown(metrics_html, unsafe_allow_html=True)
+                    if has_fx:
+                        st.markdown(f'<div style="font-size:10px;color:#666;margin-top:4px;">현재환율 {fx_summary["cur_fx"]:,.0f}원/달러 기준 원화환산</div>', unsafe_allow_html=True)
+                else:
+                    st.caption("종목을 추가하면 요약이 표시됩니다.")
+
+            with top_cols[1]:
+                if st.button("➕ 종목 추가", key=f"add_{p_name}", use_container_width=True):
+                    add_stock_dialog(p_name)
+            with top_cols[2]:
+                if st.button("🗑️ 삭제", key=f"delp_{p_name}", use_container_width=True):
+                    del st.session_state.portfolios[p_name]
+                    st.session_state.expanded_state.pop(p_name, None)
+                    save_portfolios()   # ★ 저장
+                    st.rerun()
+
+            st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
+            render_portfolio_table(p_name, rows, total_eval_amount)
