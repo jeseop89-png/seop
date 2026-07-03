@@ -129,7 +129,25 @@ def save_watchlist():
 
 # ==========================================
 # ⚙️ 현재가는 실시간 크롤링 + 52주 최고가는 yfinance 계산
+#   -> 1년치 일봉 데이터(history)는 무거운 요청이라, 52주 최고가/전일종가처럼
+#      자주 안 바뀌는 값은 따로 떼어내 몇 시간에 한 번만 다시 가져오도록 캐시.
+#      덕분에 30~60초마다 도는 자동 갱신에서는 가벼운 현재가 조회만 반복됨.
 # ==========================================
+@st.cache_data(ttl=3600 * 4)
+def get_year_history_stats(ticker):
+    try:
+        df = yf.Ticker(ticker).history(period="1y")
+        if not df.empty and len(df) >= 2:
+            return {
+                "prev_close": float(df['Close'].iloc[-2]),
+                "last_close": float(df['Close'].iloc[-1]),
+                "high_52w": float(df['High'].max()),
+            }
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=50)
 def get_korean_index_final(code):
     ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
@@ -152,17 +170,12 @@ def get_korean_index_final(code):
     except:
         pass
 
-    try:
-        time.sleep(0.01)
-        df = yf.Ticker(ticker).history(period="1y")
-        if not df.empty:
-            if current_price is None:
-                current_price = df['Close'].iloc[-1]
-                prev_price = df['Close'].iloc[-2]
-                change_pct = ((current_price - prev_price) / prev_price) * 100
-            high_52w = df['High'].max()
-    except:
-        pass
+    stats = get_year_history_stats(ticker)
+    if stats:
+        if current_price is None:
+            current_price = stats["last_close"]
+            change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+        high_52w = stats["high_52w"]
 
     if high_52w is None or high_52w < 100:
         high_52w = 2892.21 if code == "KOSPI" else 923.15
@@ -175,21 +188,19 @@ def get_korean_index_final(code):
 
 @st.cache_data(ttl=50)
 def get_index_data(ticker):
+    stats = get_year_history_stats(ticker)
+    if not stats:
+        return None
     try:
-        time.sleep(0.01)
-        df = yf.Ticker(ticker).history(period="1y")
-        if not df.empty and len(df) >= 2:
-            prev_price = df['Close'].iloc[-2]
-            current_price = get_yf_live_price(ticker)
-            if current_price is None:
-                current_price = df['Close'].iloc[-1]
-            change_pct = ((current_price - prev_price) / prev_price) * 100
-            high_52w = df['High'].max()
-            drop_pct = ((current_price - high_52w) / high_52w) * 100
-            return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
-    except:
-        pass
-    return None
+        current_price = get_yf_live_price(ticker)
+        if current_price is None:
+            current_price = stats["last_close"]
+        change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+        high_52w = stats["high_52w"]
+        drop_pct = ((current_price - high_52w) / high_52w) * 100
+        return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600 * 6)
@@ -536,9 +547,11 @@ def render_market_overview():
                     f"""
                     <div>
                         <h4 style="font-size: 15px; margin-top: 0px; margin-bottom: 8px; font-weight: 700; line-height: 1.2;">{name}</h4>
-                        <div style="margin-top: 0px; margin-bottom: 6px; white-space: nowrap;">
-                            <span style="font-size: 16px; font-weight: 800; color: #ffffff;">{data['current']:,.2f}</span>
-                            <span style="font-size: 12px; font-weight: bold; color: {pct_color}; margin-left: 3px;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
+                        <div style="margin-top: 0px; margin-bottom: 4px; white-space: nowrap;">
+                            <span style="font-size: 17px; font-weight: 800; color: #ffffff;">{data['current']:,.2f}</span>
+                        </div>
+                        <div style="margin-bottom: 6px;">
+                            <span style="font-size: 14px; font-weight: 800; color: {pct_color}; background-color: {pct_color}22; padding: 2px 7px; border-radius: 5px; white-space: nowrap;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
                         </div>
                         <div style="line-height: 1.4; white-space: nowrap; font-family: sans-serif;">
                             <span style="font-size: 11px; color: #ff4d4d; font-weight: bold;">▲</span>
@@ -803,8 +816,8 @@ def render_market_overview():
                     """
                 else:
                     vix_bottom_html = f"""
-                    <div style="font-size: 13px; font-weight: bold; color: {pct_color}; margin-top: 4px;">
-                        {arrow_sign} {abs(m_data['change_pct']):.2f}%
+                    <div style="margin-top: 4px;">
+                        <span style="font-size: 13px; font-weight: 800; color: {pct_color}; background-color: {pct_color}22; padding: 2px 7px; border-radius: 5px;">{arrow_sign} {abs(m_data['change_pct']):.2f}%</span>
                     </div>
                     """
 
