@@ -37,18 +37,35 @@ st.markdown(
     }
     /* 모바일에서 st.columns가 세로로 쌓이지 않고, PC처럼 가로 배치를 유지한 채
        옆으로 스크롤해서 보도록 강제함 (좁은 화면에서 컬럼이 자동으로 쌓이는
-       Streamlit 기본 동작을 막음) */
+       Streamlit 기본 동작을 막음). 지수/매크로/금리 카드 등 짧은 가로 배치용. */
     @media (max-width: 900px) {
         div[data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             overflow-x: auto !important;
             -webkit-overflow-scrolling: touch;
-            padding-bottom: 6px;
+            scroll-snap-type: x proximity;
+            padding-bottom: 8px;
         }
         div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
-            min-width: 108px;
+            min-width: 132px;
             flex: 0 0 auto !important;
             width: auto !important;
+            scroll-snap-align: start;
+        }
+        div[data-testid="stButton"] > button {
+            font-size: 15px;
+            padding: 6px 12px;
+        }
+        /* 포트폴리오 테이블(14칸)은 가로 스크롤 대신 카드형으로 따로 보여주므로,
+           원본 테이블(desktop_table_ 로 시작하는 컨테이너)은 모바일에서 숨김 */
+        div[class*="st-key-desktop_table_"] {
+            display: none !important;
+        }
+    }
+    @media (min-width: 901px) {
+        /* PC에서는 모바일 전용 카드뷰(mobile_table_ 컨테이너)를 숨김 */
+        div[class*="st-key-mobile_table_"] {
+            display: none !important;
         }
     }
     </style>
@@ -305,26 +322,44 @@ def get_cnn_fear_greed():
 # ==========================================
 @st.cache_data(ttl=3600 * 3)
 def fetch_fred_series(series_id):
+    # 1순위: FRED 공식 API (무료 키 필요, Streamlit Secrets에 FRED_API_KEY로 등록 시 사용)
+    # 스크래핑용 CSV 엔드포인트보다 훨씬 안정적이고 클라우드 IP 차단 이슈가 없음
+    try:
+        api_key = st.secrets.get("FRED_API_KEY")
+    except Exception:
+        api_key = None
+
+    if api_key:
+        try:
+            url = "https://api.stlouisfed.org/fred/series/observations"
+            params = {"series_id": series_id, "api_key": api_key, "file_type": "json"}
+            res = requests.get(url, params=params, timeout=6)
+            res.raise_for_status()
+            obs = res.json().get("observations", [])
+            valid = [(o["date"], float(o["value"])) for o in obs if o.get("value") not in (None, ".", "")]
+            if valid:
+                return valid
+        except Exception:
+            pass  # 실패하면 아래 CSV 방식으로 폴백
+
+    # 2순위: CSV 스크래핑 방식 (API 키가 없거나 API 호출이 실패했을 때)
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/csv,text/plain,*/*",
         "Accept-Language": "en-US,en;q=0.9",
     }
-    for attempt in range(2):  # 클라우드 환경에서 첫 시도가 타임아웃/일시적 오류로 실패하는 경우가 있어 한 번 더 시도
-        try:
-            res = requests.get(url, headers=headers, timeout=10)
-            res.raise_for_status()
-            lines = [l for l in res.text.strip().split("\n") if l.strip()]
-            rows = [l.split(",") for l in lines[1:]]
-            valid = [(d, float(v)) for d, v in rows if v not in (".", "")]
-            if valid:
-                return valid
-        except Exception:
-            if attempt == 0:
-                time.sleep(1)
-                continue
-    return None
+    # 재시도는 지속적으로 실패할 경우 페이지 전체를 몇십 초씩 붙잡아두는 원인이 되므로,
+    # 한 번만 시도하고 짧게 실패하도록 함 (막혀있는 경우 재시도해도 소용없음)
+    try:
+        res = requests.get(url, headers=headers, timeout=6)
+        res.raise_for_status()
+        lines = [l for l in res.text.strip().split("\n") if l.strip()]
+        rows = [l.split(",") for l in lines[1:]]
+        valid = [(d, float(v)) for d, v in rows if v not in (".", "")]
+        return valid if valid else None
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600 * 3)
@@ -344,8 +379,12 @@ def get_high_yield_spread():
 def get_global_m2():
     # 미국 M2(M2SL, 10억달러) + 유로존 M2(MYAGM2EZM196N, 유로) 합산
     # ※ 중국·일본 M2는 FRED 공개 시계열이 중단되어 제외 (2019년 이후 갱신 안됨)
-    us = fetch_fred_series("M2SL")
-    eu = fetch_fred_series("MYAGM2EZM196N")
+    # 두 시리즈를 동시에 가져와서(순차 대기보다 두 배 빠름) 대기 시간을 줄임
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        us_future = pool.submit(fetch_fred_series, "M2SL")
+        eu_future = pool.submit(fetch_fred_series, "MYAGM2EZM196N")
+        us = us_future.result()
+        eu = eu_future.result()
     if not us or not eu:
         return None
 
@@ -1678,6 +1717,79 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             edit_stock_dialog(portfolio_name, i)
 
 
+def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
+    """모바일 화면용 보유종목 카드뷰. 14칸짜리 테이블을 옆으로 스크롤하는 대신,
+    종목당 카드 하나에 라벨:값을 세로로 쌓아서 한눈에 읽기 쉽게 보여줌."""
+    if not rows:
+        st.caption("아직 추가된 종목이 없습니다. 위의 '➕ 종목 추가' 버튼을 눌러보세요.")
+        return
+
+    for i, r in enumerate(rows):
+        is_usd = not (r["ticker"].endswith(".KS") or r["ticker"].endswith(".KQ"))
+        cur_fx = get_usd_krw_rate() if is_usd else None
+        buy_fx = (r.get("buy_fx_rate", 0.0) or 0.0) if is_usd else None
+        if is_usd and not buy_fx:
+            buy_fx = cur_fx
+        display_name = get_display_name(r["ticker"], r["name"])
+        target_weight = r.get("target_weight", 0.0) or 0.0
+
+        avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd)
+
+        rows_html = f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">수량</span><span>{r["qty"]:,.0f}</span></div>'
+        rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평단가</span><span>{avg_txt}</span></div>'
+
+        if r["eval_amount"] is not None:
+            profit_amount = r["eval_amount"] - r["buy_amount"]
+            profit_pct = (profit_amount / r["buy_amount"]) * 100 if r["buy_amount"] > 0 else 0.0
+            color = "#ff4d4d" if profit_pct >= 0 else "#4d94ff"
+            arrow = "▲" if profit_pct >= 0 else "▼"
+            current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
+
+            cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
+            eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
+            if is_usd and cur_fx:
+                profit_krw = (r['eval_amount'] * cur_fx) - (r['buy_amount'] * buy_fx)
+                profit_txt = f"{fmt_money(abs(profit_amount), is_usd)} <span style='font-size:0.85em;'>({abs(profit_krw):,.0f}원)</span>"
+            else:
+                profit_txt = fmt_money(abs(profit_amount), is_usd)
+
+            rsi_v = r["rsi"]
+            if rsi_v is not None:
+                rsi_txt = f"{rsi_v:.1f}" + (" (과매수)" if rsi_v >= 70 else " (과매도)" if rsi_v <= 30 else "")
+            else:
+                rsi_txt = "⏳"
+
+            diff_pct = current_weight - target_weight
+            if abs(diff_pct) <= 2:
+                signal_color, signal_tag = "#aaaaaa", "적정"
+            elif diff_pct > 0:
+                signal_color, signal_tag = "#4d94ff", "초과"
+            else:
+                signal_color, signal_tag = "#ff4d4d", "부족"
+
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">현재가</span><span>{cur_txt}</span></div>'
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">RSI</span><span>{rsi_txt}</span></div>'
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평가금액</span><span>{eval_txt}</span></div>'
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평가손익</span><span style="color:{color};font-weight:700;">{arrow} {profit_txt} ({abs(profit_pct):.1f}%)</span></div>'
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">비중</span><span>목표 {target_weight:.0f}% / 현재 {current_weight:.0f}%</span></div>'
+            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">신호</span><span style="color:{signal_color};font-weight:700;">{signal_tag} ({diff_pct:+.1f}%p)</span></div>'
+        else:
+            rows_html += '<div style="display:flex;justify-content:space-between;"><span style="color:#888;">현재가</span><span>⏳</span></div>'
+
+        card_cols = st.columns([5, 1])
+        with card_cols[0]:
+            st.markdown(
+                f'''<div style="background-color:#161616;border-radius:8px;padding:10px 14px;margin-bottom:8px;">
+                    <div style="font-size:14px;font-weight:800;color:#ffffff;margin-bottom:6px;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></div>
+                    <div style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:#dddddd;">{rows_html}</div>
+                </div>''',
+                unsafe_allow_html=True
+            )
+        with card_cols[1]:
+            if st.button("✏️", key=f"edit_mobile_{portfolio_name}_{i}", help="수정/삭제"):
+                edit_stock_dialog(portfolio_name, i)
+
+
 st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
 render_my_watchlist()
@@ -1694,7 +1806,7 @@ with title_cols[1]:
 if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
-    for p_name in list(st.session_state.portfolios.keys()):
+    for p_idx, p_name in enumerate(list(st.session_state.portfolios.keys())):
         holdings = st.session_state.portfolios[p_name]
         rows, total_buy_amount, total_eval_amount, fx_summary = compute_portfolio_rows(holdings)
         is_expanded = st.session_state.expanded_state.get(p_name, True)
@@ -1763,4 +1875,7 @@ else:
                     st.rerun()
 
             st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-            render_portfolio_table(p_name, rows, total_eval_amount)
+            with st.container(key=f"desktop_table_{p_idx}"):
+                render_portfolio_table(p_name, rows, total_eval_amount)
+            with st.container(key=f"mobile_table_{p_idx}"):
+                render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
