@@ -1650,6 +1650,8 @@ if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
+    is_mobile_view = st.checkbox("📱 모바일 보기 (세로 카드형)", value=False, key="mobile_view_toggle",
+                                  help="PC에서는 끄면 가로 테이블, 켜면 세로 카드로 보여요. 모바일에서 볼 땐 켜두세요.")
     tabs = st.tabs([f"📁 {name}" for name in portfolio_names])
 
     for p_idx, (p_name, tab) in enumerate(zip(portfolio_names, tabs)):
@@ -1713,4 +1715,7 @@ else:
                     st.rerun()
 
             st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-            render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+            if is_mobile_view:
+                render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+            else:
+                render_portfolio_table(p_name, rows, total_eval_amount)
