@@ -558,37 +558,31 @@ def render_market_overview():
     with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
-            _warm_pool.submit(get_index_data, "^GSPC"),
-            _warm_pool.submit(get_index_data, "^IXIC"),
+            _warm_pool.submit(get_index_data, "QQQ"),
             _warm_pool.submit(get_index_data, "^SOX"),
-            _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
-            _warm_pool.submit(get_index_data, "DX-Y.NYB"),
             _warm_pool.submit(get_index_data, "USDKRW=X"),
             _warm_pool.submit(get_index_data, "CL=F"),
             _warm_pool.submit(get_index_data, "GC=F"),
-            _warm_pool.submit(get_safe_rates_engine),
             _warm_pool.submit(get_cnn_fear_greed),
         ]
         # 최대 8초까지만 기다리고, 그 안에 안 끝난 요청은 그냥 넘어감
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 구역 (가로 5칸)
-    cols = st.columns(5)
-    target_indices = {
+    # 2. 상단 지수 구역 (코스피 / QQQ / 반도체지수)
+    cols = st.columns(3)
+    top_items = {
         "KOSPI": "코스피 (실시간)",
-        "^GSPC": "S&P 500",
-        "^IXIC": "나스닥",
-        "^SOX": "반도체지수",
-        "^N225": "니케이225"
+        "QQQ": "QQQ (나스닥100)",
+        "^SOX": "반도체지수(SOX)"
     }
 
-    for idx, (ticker, name) in enumerate(target_indices.items()):
+    for idx, (ticker, name) in enumerate(top_items.items()):
         with cols[idx]:
-            if ticker in ["KOSPI", "KOSDAQ"]:
+            if ticker == "KOSPI":
                 data = get_korean_index_final(ticker)
             else:
                 data = get_index_data(ticker)
@@ -596,27 +590,22 @@ def render_market_overview():
             if data:
                 pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
                 arrow_sign = "▲" if data['change_pct'] >= 0 else "▼"
+                unit = "$" if ticker != "KOSPI" else ""
 
                 st.markdown(
                     f"""
-                    <div>
-                        <h4 style="font-size: 15px; margin-top: 0px; margin-bottom: 8px; font-weight: 700; line-height: 1.2;">{name}</h4>
-                        <div style="margin-top: 0px; margin-bottom: 4px; white-space: nowrap;">
-                            <span style="font-size: 17px; font-weight: 800; color: #ffffff;">{data['current']:,.2f}</span>
+                    <div style="background-color:#111111; border-radius:8px; padding:12px 16px;">
+                        <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">{name}</div>
+                        <div style="margin-bottom: 4px;">
+                            <span style="font-size: 19px; font-weight: 800; color:#ffffff;">{unit}{data['current']:,.2f}</span>
                         </div>
                         <div style="margin-bottom: 6px;">
-                            <span style="font-size: 14px; font-weight: 800; color: {pct_color}; background-color: {pct_color}22; padding: 2px 7px; border-radius: 5px; white-space: nowrap;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
+                            <span style="font-size: 13px; font-weight: 800; color:{pct_color}; background-color:{pct_color}22; padding:2px 7px; border-radius:5px;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
                         </div>
-                        <div style="line-height: 1.4; white-space: nowrap; font-family: sans-serif;">
-                            <span style="font-size: 11px; color: #ff4d4d; font-weight: bold;">▲</span>
-                            <span style="font-size: 11px; color: #aaaaaa;">52주 최고:</span>
-                            <span style="font-size: 13px; color: #ffffff; font-weight: 700;">{data['high']:,.2f}</span>
-                            <br>
-                            <span style="font-size: 11px; color: #4d94ff; font-weight: bold;">▼</span>
-                            <span style="font-size: 11px; color: #aaaaaa;">대비 하락:</span>
-                            <span style="font-size: 13px; color: #4d94ff; font-weight: 700;">{data['drop']:.2f}%</span>
+                        <div style="line-height:1.5; font-size:11px; color:#999;">
+                            52주최고: <span style="color:#fff;font-weight:700;">{unit}{data['high']:,.2f}</span><br>
+                            신고대비: <span style="color:#4d94ff;font-weight:700;">{data['drop']:.2f}%</span>
                         </div>
-                        <hr style="border-color: #222222; margin-top: 8px; margin-bottom: 8px;">
                     </div>
                     """,
                     unsafe_allow_html=True
@@ -624,57 +613,17 @@ def render_market_overview():
             else:
                 st.markdown(
                     f"""
-                    <div>
-                        <h4 style="font-size: 15px; margin-top: 0px; margin-bottom: 8px; font-weight: 700; line-height: 1.2;">{name}</h4>
-                        <span style="font-size: 12px; color: #666;">⏳ 연결중...</span>
-                        <hr style="border-color: #222222; margin-top: 8px; margin-bottom: 8px;">
+                    <div style="background-color:#111111; border-radius:8px; padding:12px 16px; text-align:center;">
+                        <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">{name}</div>
+                        <span style="font-size: 12px; color:#666;">⏳ 연결중...</span>
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
 
-    # 3. 중단 금리 및 공포·탐욕 지수 구역
+    # 3. 중단 공포·탐욕 지수 구역 (기준금리 3개 카드는 간소화를 위해 제거)
     st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-    left_box, fg_box, gold_box = st.columns([2, 1, 1])
-
-    exact_rates = get_safe_rates_engine()
-    countries = [
-        {"key": "USA", "title": "🇺🇸 미국 기준금리 (FED)"},
-        {"key": "KOR", "title": "🇰🇷 한국 기준금리 (BOK)"},
-        {"key": "JPN", "title": "🇯🇵 일본 기준금리 (BOJ)"}
-    ]
-
-    with left_box:
-        r_cols = st.columns(3)
-        for idx, country in enumerate(countries):
-            info = exact_rates[country["key"]]
-            text_color = "#ff4d4d" if info["status"] == "up" else ("#4d94ff" if info["status"] == "down" else "#ffffff")
-            rate_arrow = f"▲ {info['change']:.2f}%p" if info["status"] == "up" else (f"▼ {info['change']:.2f}%p" if info["status"] == "down" else "● 0.00%p")
-            status_txt = " (인상)" if info["status"] == "up" else (" (인하)" if info["status"] == "down" else " (동결)")
-
-            source = info.get("source", "manual")
-            if source == "fred":
-                source_badge = "<span style='font-size:9px; color:#4dff4d;'>● 자동(FRED)</span>"
-            elif source == "scrape":
-                source_badge = "<span style='font-size:9px; color:#4dd2ff;'>● 자동(크롤링)</span>"
-            else:
-                last_conf = info.get("last_confirmed", "")
-                source_badge = f"<span style='font-size:9px; color:#ffaa4d;'>● 수동 ({last_conf} 확인)</span>"
-
-            with r_cols[idx]:
-                st.markdown(
-                    f"""
-                    <div style="background-color: #1a1a1a; padding: 10px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
-                        <div style="font-size: 12px; color: #aaaaaa; font-weight: bold;">{country['title']}<span style="color: {text_color}; font-size: 11px;">{status_txt}</span></div>
-                        <div style="margin-top: 3px; white-space: nowrap; display: flex; align-items: baseline;">
-                            <span style="font-size: 20px; font-weight: 800; color: {text_color};">{info['rate']:.2f}%</span>
-                            <span style="font-size: 13px; font-weight: bold; color: {text_color}; margin-left: 8px;">{rate_arrow}</span>
-                        </div>
-                        <div style="margin-top: 4px;">{source_badge}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+    fg_box, gold_box = st.columns([1, 1])
 
     with fg_box:
         fg_score, fg_status = get_cnn_fear_greed()
@@ -739,11 +688,10 @@ def render_market_overview():
 
     # 4. 하단 매크로 지표 구역
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    macro_cols = st.columns(5)
+    macro_cols = st.columns(4)
 
     macro_indicators = {
         "^VIX": {"name": "빅스 지수", "fmt": "{:,.2f}"},
-        "DX-Y.NYB": {"name": "💲 달러 인덱스", "fmt": "{:,.2f}"},
         "USDKRW=X": {"name": "💵 원/달러 환율", "fmt": "₩{:,.2f}"},
         "CL=F": {"name": "🛢️ 원유 (WTI)", "fmt": "${:,.2f}"}
     }
@@ -824,7 +772,7 @@ def render_market_overview():
                 )
 
     # 미국채 2년물 + 10년물을 카드 하나로 통합 표시
-    with macro_cols[4]:
+    with macro_cols[3]:
         shy_data = get_index_data("SHY")
         tnx_data = get_index_data("^TNX")
 
@@ -871,6 +819,15 @@ render_market_overview()
 
 if "portfolios" not in st.session_state:
     st.session_state.portfolios = load_portfolios()   # {} 대신 파일에서 불러오기
+    # 처음 실행 시(저장된 포트폴리오가 하나도 없을 때) 기본 4개를 미리 만들어둠
+    if not st.session_state.portfolios:
+        st.session_state.portfolios = {
+            "1. 연금": [],
+            "2. ISA": [],
+            "3. 직투": [],
+            "4. 코인": [],
+        }
+        save_portfolios()
 
 if "watchlist" not in st.session_state:
     st.session_state.watchlist = load_watchlist()   # 관심종목 (보유 여부와 무관한 별도 리스트)
@@ -1817,23 +1774,18 @@ with title_cols[1]:
 if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
-    for p_idx, p_name in enumerate(list(st.session_state.portfolios.keys())):
-        holdings = st.session_state.portfolios[p_name]
-        rows, total_buy_amount, total_eval_amount, fx_summary = compute_portfolio_rows(holdings)
-        is_expanded = st.session_state.expanded_state.get(p_name, True)
+    portfolio_names = list(st.session_state.portfolios.keys())
+    tabs = st.tabs([f"📁 {name}" for name in portfolio_names])
 
-        # key를 지정하면 Streamlit이 이 포트폴리오의 접기/펼치기 상태를 개별적으로
-        # 기억해서, 다른 포트폴리오를 조작해도 서로 영향을 주지 않음.
-        # (구버전 Streamlit에서 key 미지원 시 안전하게 폴백)
-        try:
-            expander_cm = st.expander(f"📁 {p_name}  ({len(holdings)}개 종목)", expanded=is_expanded, key=f"exp_{p_name}")
-        except TypeError:
-            expander_cm = st.expander(f"📁 {p_name}  ({len(holdings)}개 종목)", expanded=is_expanded)
+    for p_idx, (p_name, tab) in enumerate(zip(portfolio_names, tabs)):
+        with tab:
+            holdings = st.session_state.portfolios[p_name]
+            rows, total_buy_amount, total_eval_amount, fx_summary = compute_portfolio_rows(holdings)
 
-        with expander_cm:
             top_cols = st.columns([3.4, 1, 1])
 
             with top_cols[0]:
+                st.markdown(f"<div style='font-size:13px;color:#888;margin-bottom:4px;'>{len(holdings)}개 종목</div>", unsafe_allow_html=True)
                 if total_buy_amount > 0:
                     total_profit = total_eval_amount - total_buy_amount
                     total_profit_pct = (total_profit / total_buy_amount) * 100
@@ -1879,7 +1831,7 @@ else:
                 if st.button("➕ 종목 추가", key=f"add_{p_name}", use_container_width=True):
                     add_stock_dialog(p_name)
             with top_cols[2]:
-                if st.button("🗑️ 삭제", key=f"delp_{p_name}", use_container_width=True):
+                if st.button("🗑️ 계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
                     del st.session_state.portfolios[p_name]
                     st.session_state.expanded_state.pop(p_name, None)
                     save_portfolios()   # ★ 저장
