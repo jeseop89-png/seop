@@ -236,28 +236,40 @@ def get_safe_rates_engine():
         "JPN": {"rate": MANUAL_FALLBACK["JPN"], "status": "stay", "change": 0.00, "source": "manual"},
     }
 
-    # 미국: FRED 공식 데이터로 실제 자동 갱신 (Federal Funds Target Range - Upper Limit)
-    try:
-        us_data = fetch_fred_series("DFEDTARU")
-        if us_data:
-            latest_date, latest_rate = us_data[-1]
-            rates["USA"]["rate"] = latest_rate
-            rates["USA"]["source"] = "fred"
-            if len(us_data) > 1:
-                prev_rate = us_data[-2][1]
-                if latest_rate > prev_rate:
-                    rates["USA"]["status"] = "up"
-                    rates["USA"]["change"] = round(latest_rate - prev_rate, 2)
-                elif latest_rate < prev_rate:
-                    rates["USA"]["status"] = "down"
-                    rates["USA"]["change"] = round(prev_rate - latest_rate, 2)
-    except Exception:
-        pass
+    # 미국(FRED)·한국/일본(TradingEconomics 크롤링)을 동시에 가져와서 대기 시간을 줄임
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+        us_future = pool.submit(fetch_fred_series, "DFEDTARU")
+        kor_future = pool.submit(scrape_rate_from_tradingeconomics, "south-korea")
+        jpn_future = pool.submit(scrape_rate_from_tradingeconomics, "japan")
 
-    # 한국/일본: TradingEconomics 크롤링 시도, 실패하면 수동값 유지
-    scrape_targets = {"KOR": "south-korea", "JPN": "japan"}
-    for key, path in scrape_targets.items():
-        scraped = scrape_rate_from_tradingeconomics(path)
+        try:
+            us_data = us_future.result()
+            if us_data:
+                latest_date, latest_rate = us_data[-1]
+                rates["USA"]["rate"] = latest_rate
+                rates["USA"]["source"] = "fred"
+                if len(us_data) > 1:
+                    prev_rate = us_data[-2][1]
+                    if latest_rate > prev_rate:
+                        rates["USA"]["status"] = "up"
+                        rates["USA"]["change"] = round(latest_rate - prev_rate, 2)
+                    elif latest_rate < prev_rate:
+                        rates["USA"]["status"] = "down"
+                        rates["USA"]["change"] = round(prev_rate - latest_rate, 2)
+        except Exception:
+            pass
+
+        scrape_results = {"KOR": None, "JPN": None}
+        try:
+            scrape_results["KOR"] = kor_future.result()
+        except Exception:
+            pass
+        try:
+            scrape_results["JPN"] = jpn_future.result()
+        except Exception:
+            pass
+
+    for key, scraped in scrape_results.items():
         if scraped is not None:
             prev_rate = MANUAL_FALLBACK[key]
             rates[key]["rate"] = scraped
@@ -507,8 +519,6 @@ def render_market_overview():
             _warm_pool.submit(get_index_data, "GC=F"),
             _warm_pool.submit(get_safe_rates_engine),
             _warm_pool.submit(get_cnn_fear_greed),
-            _warm_pool.submit(get_high_yield_spread),
-            _warm_pool.submit(get_global_m2),
         ]
         # 최대 8초까지만 기다리고, 그 안에 안 끝난 요청은 그냥 넘어감
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
@@ -573,7 +583,7 @@ def render_market_overview():
 
     # 3. 중단 금리 및 공포·탐욕 지수 구역
     st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
-    left_box, fg_box, hy_box, m2_box, gold_box = st.columns([2, 1, 1, 1, 1])
+    left_box, fg_box, gold_box = st.columns([2, 1, 1])
 
     exact_rates = get_safe_rates_engine()
     countries = [
@@ -640,93 +650,6 @@ def render_market_overview():
             """,
             unsafe_allow_html=True
         )
-
-    with hy_box:
-        hy = get_high_yield_spread()
-        if hy:
-            v = hy["value"]
-            if v < 3.5:
-                hy_color, hy_tag = "#4dff4d", "🟢 안정"
-            elif v < 5:
-                hy_color, hy_tag = "#ffff4d", "🟡 유의"
-            elif v < 7:
-                hy_color, hy_tag = "#ff944d", "🟠 경계"
-            else:
-                hy_color, hy_tag = "#ff4d4d", "🔴 위험"
-
-            if hy["change"] is not None:
-                chg_color = "#ff4d4d" if hy["change"] >= 0 else "#4d94ff"
-                chg_arrow = "▲" if hy["change"] >= 0 else "▼"
-                chg_html = f"<span style='font-size:11px;color:{chg_color};font-weight:bold;'>{chg_arrow} {abs(hy['change']):.2f}%p</span>"
-            else:
-                chg_html = ""
-
-            st.markdown(
-                f"""
-                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center;">
-                    <div style="font-size: 11px; color: #aaaaaa; font-weight: bold; margin-bottom: 2px; white-space:nowrap;">🩸 하이일드 스프레드</div>
-                    <div style="white-space: nowrap; display: flex; align-items: baseline;">
-                        <span style="font-size: 22px; font-weight: 900; color: #ffffff;">{v:.2f}%</span>
-                        <span style="margin-left: 8px;">{chg_html}</span>
-                    </div>
-                    <div style="font-size: 12px; font-weight: bold; color: {hy_color};">{hy_tag} (1개월전대비)</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                """
-                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
-                    <span style="font-size: 11px; color: #666;">⏳ 수신 대기중</span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-    with m2_box:
-        m2 = get_global_m2()
-        if m2:
-            date_label = m2["date"][:7].replace("-", ".")
-            trend = m2.get("trend", [])
-
-            if m2["yoy"] is not None:
-                trend_color = "#ff4d4d" if m2["yoy"] >= 0 else "#4d94ff"
-                yoy_arrow = "▲" if m2["yoy"] >= 0 else "▼"
-                yoy_badge = f"<span style='font-size:11px;color:{trend_color};font-weight:bold;'>{yoy_arrow} {abs(m2['yoy']):.1f}%</span>"
-            else:
-                trend_color = "#ffffff"
-                yoy_badge = ""
-
-            # 차트 중심 표시: 숫자는 최소화하고 24개월 추세선을 박스 대부분에 꽉 채워서 표시
-            spark_svg = make_sparkline_svg(trend, width=140, height=44, color=trend_color) if len(trend) >= 2 else ""
-
-            st.markdown(
-                f"""
-                <div style="background-color: #1a1a1a; padding: 8px 12px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;">
-                    <div style="display:flex; justify-content:space-between; align-items:baseline; flex:0 0 auto;">
-                        <span style="font-size: 11px; color: #aaaaaa; font-weight: bold; white-space:nowrap;">💧 글로벌 M2</span>
-                        {yoy_badge}
-                    </div>
-                    <div style="flex:1 1 auto; min-height:0; min-width:0; margin-top:2px; line-height:0;">
-                        {spark_svg}
-                    </div>
-                    <div style="flex:0 0 auto; text-align:right;">
-                        <span style="color:#666; font-size:9px;">{date_label} · ${m2['total_trillion']:.1f}조</span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        else:
-            st.markdown(
-                """
-                <div style="background-color: #1a1a1a; padding: 12px 15px; border-radius: 6px; border: 1px solid #333333; height: 108px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
-                    <span style="font-size: 11px; color: #666;">⏳ 수신 대기중</span>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
 
     with gold_box:
         gold_data = get_index_data("GC=F")
