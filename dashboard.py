@@ -1577,19 +1577,11 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
 
 
 def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
-    """모바일 화면용 보유종목 카드뷰. 종목당 2줄 정도로 압축해서, 통계들을
-    세로로 쭉 나열하는 대신 가로로 촘촘하게 배치해 스크롤 부담을 줄임."""
+    """모바일 화면용 보유종목 카드뷰. 증권사 앱처럼 종목당 딱 2줄로:
+    1줄 = 종목명 ↔ 현재가/등락률, 2줄 = 수량·평단가 ↔ 평가금액/손익."""
     if not rows:
         st.caption("아직 추가된 종목이 없습니다. 위의 '➕ 종목 추가' 버튼을 눌러보세요.")
         return
-
-    def chip(label, value, color="#dddddd"):
-        return (
-            '<span style="display:inline-block;margin-right:12px;margin-top:4px;white-space:nowrap;">'
-            f'<span style="color:#888;font-size:11px;">{label}</span> '
-            f'<span style="color:{color};font-weight:700;font-size:12px;">{value}</span>'
-            '</span>'
-        )
 
     for i, r in enumerate(rows):
         is_usd = not (r["ticker"].endswith(".KS") or r["ticker"].endswith(".KQ"))
@@ -1598,52 +1590,36 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
         if is_usd and not buy_fx:
             buy_fx = cur_fx
         display_name = get_display_name(r["ticker"], r["name"])
-        target_weight = r.get("target_weight", 0.0) or 0.0
 
-        avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd)
-
-        line2 = chip("수량", f"{r['qty']:,.0f}") + chip("평단가", avg_txt)
+        avg_txt = fmt_money(r['avg_price'], is_usd)
 
         if r["eval_amount"] is not None:
             profit_amount = r["eval_amount"] - r["buy_amount"]
             profit_pct = (profit_amount / r["buy_amount"]) * 100 if r["buy_amount"] > 0 else 0.0
             color = "#ff4d4d" if profit_pct >= 0 else "#4d94ff"
             arrow = "▲" if profit_pct >= 0 else "▼"
-            current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
-
-            cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
-            buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
-            eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
-            profit_txt = f"{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)"
-
-            diff_pct = current_weight - target_weight
-            if abs(diff_pct) <= 2:
-                signal_color, signal_tag = "#aaaaaa", "적정"
-            elif diff_pct > 0:
-                signal_color, signal_tag = "#4d94ff", "초과"
-            else:
-                signal_color, signal_tag = "#ff4d4d", "부족"
-
-            line2 += chip("현재가", cur_txt)
-            line3 = (
-                chip("매수금", buy_amt_txt)
-                + chip("평가금", eval_txt)
-                + chip("손익", profit_txt, color=color)
-                + chip("비중", f"{current_weight:.0f}%/{target_weight:.0f}%")
-                + chip("신호", f"{signal_tag}({diff_pct:+.1f}%p)", color=signal_color)
-            )
+            cur_txt = fmt_money(r['current_price'], is_usd)
+            eval_txt = fmt_money(r['eval_amount'], is_usd)
+            row1_right = f'<span style="font-size:14px;font-weight:800;color:#ffffff;">{cur_txt}</span>'
+            row2_right = f'<span style="font-size:13px;font-weight:700;color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
         else:
-            line2 += chip("현재가", "⏳")
-            line3 = ""
+            eval_txt = "⏳"
+            row1_right = '<span style="font-size:13px;color:#666;">⏳</span>'
+            row2_right = ""
 
         card_cols = st.columns([5, 1])
         with card_cols[0]:
             st.markdown(
                 (
                     '<div style="background-color:#161616;border-radius:8px;padding:10px 14px;margin-bottom:8px;">'
-                    f'<div style="font-size:14px;font-weight:800;color:#ffffff;margin-bottom:2px;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></div>'
-                    f'<div style="line-height:1.6;">{line2}</div>'
-                    f'<div style="line-height:1.6;">{line3}</div>'
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+                    f'<span style="font-size:14px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
+                    f'{row1_right}'
+                    '</div>'
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;">'
+                    f'<span style="font-size:12px;color:#999;">{r["qty"]:,.0f}주 · {avg_txt}</span>'
+                    f'{row2_right}'
+                    '</div>'
                     '</div>'
                 ),
                 unsafe_allow_html=True
@@ -1675,55 +1651,55 @@ else:
             holdings = st.session_state.portfolios[p_name]
             rows, total_buy_amount, total_eval_amount, fx_summary = compute_portfolio_rows(holdings)
 
-            top_cols = st.columns([3.4, 1, 1])
+            st.markdown(f"<div style='font-size:13px;color:#888;margin-bottom:4px;'>{len(holdings)}개 종목</div>", unsafe_allow_html=True)
+            if total_buy_amount > 0:
+                total_profit = total_eval_amount - total_buy_amount
+                total_profit_pct = (total_profit / total_buy_amount) * 100
+                color = "#ff4d4d" if total_profit_pct >= 0 else "#4d94ff"
+                arrow = "▲" if total_profit_pct >= 0 else "▼"
 
-            with top_cols[0]:
-                st.markdown(f"<div style='font-size:13px;color:#888;margin-bottom:4px;'>{len(holdings)}개 종목</div>", unsafe_allow_html=True)
-                if total_buy_amount > 0:
-                    total_profit = total_eval_amount - total_buy_amount
-                    total_profit_pct = (total_profit / total_buy_amount) * 100
-                    color = "#ff4d4d" if total_profit_pct >= 0 else "#4d94ff"
-                    arrow = "▲" if total_profit_pct >= 0 else "▼"
+                # 이 포트폴리오가 달러 기준인지(직투계좌) 판단해서 단위 표시
+                port_is_usd = any(
+                    not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings
+                )
+                has_fx = fx_summary["has_data"] and fx_summary["cur_fx"]
 
-                    # 이 포트폴리오가 달러 기준인지(직투계좌) 판단해서 단위 표시
-                    port_is_usd = any(
-                        not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings
+                def metric(label, value_html):
+                    return (
+                        '<div style="min-width:120px;">'
+                        f'<div style="font-size:11px;color:#888888;">{label}</div>'
+                        f'<div style="font-size:17px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
+                        '</div>'
                     )
-                    has_fx = fx_summary["has_data"] and fx_summary["cur_fx"]
 
-                    def metric(label, value_html):
-                        return (
-                            '<div style="min-width:120px;">'
-                            f'<div style="font-size:11px;color:#888888;">{label}</div>'
-                            f'<div style="font-size:17px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
-                            '</div>'
-                        )
+                buy_txt = combine_currency(fmt_money(total_buy_amount, port_is_usd), f"{fx_summary['buy_krw']:,.0f}원") if has_fx else fmt_money(total_buy_amount, port_is_usd)
+                eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
+                profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
+                if has_fx:
+                    profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
 
-                    buy_txt = combine_currency(fmt_money(total_buy_amount, port_is_usd), f"{fx_summary['buy_krw']:,.0f}원") if has_fx else fmt_money(total_buy_amount, port_is_usd)
-                    eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
-                    profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
-                    if has_fx:
-                        profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
+                metrics_html = (
+                    '<div style="display:flex;gap:26px;flex-wrap:nowrap;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;">'
+                    + metric("총 매수금액", buy_txt)
+                    + metric("총 평가금액", eval_txt)
+                    + metric("평가손익", profit_txt)
+                    + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
+                    + (metric("💱 환차익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
+                    + '</div>'
+                )
+                st.markdown(metrics_html, unsafe_allow_html=True)
+                if has_fx:
+                    st.markdown(f'<div style="font-size:10px;color:#666;margin-top:4px;">현재환율 {fx_summary["cur_fx"]:,.0f}원/달러 기준 원화환산</div>', unsafe_allow_html=True)
+            else:
+                st.caption("종목을 추가하면 요약이 표시됩니다.")
 
-                    metrics_html = (
-                        '<div style="display:flex;gap:26px;flex-wrap:nowrap;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;">'
-                        + metric("총 매수금액", buy_txt)
-                        + metric("총 평가금액", eval_txt)
-                        + metric("평가손익", profit_txt)
-                        + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
-                        + (metric("💱 환차익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
-                        + '</div>'
-                    )
-                    st.markdown(metrics_html, unsafe_allow_html=True)
-                    if has_fx:
-                        st.markdown(f'<div style="font-size:10px;color:#666;margin-top:4px;">현재환율 {fx_summary["cur_fx"]:,.0f}원/달러 기준 원화환산</div>', unsafe_allow_html=True)
-                else:
-                    st.caption("종목을 추가하면 요약이 표시됩니다.")
-
-            with top_cols[1]:
+            # 버튼은 요약과 공간을 나눠쓰지 않도록 별도 줄로 분리
+            st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+            btn_cols = st.columns([1, 1, 3])
+            with btn_cols[0]:
                 if st.button("➕ 종목 추가", key=f"add_{p_name}", use_container_width=True):
                     add_stock_dialog(p_name)
-            with top_cols[2]:
+            with btn_cols[1]:
                 if st.button("🗑️ 계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
                     del st.session_state.portfolios[p_name]
                     st.session_state.expanded_state.pop(p_name, None)
