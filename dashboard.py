@@ -242,9 +242,7 @@ def get_naver_world_index(naver_symbol):
 
 @st.cache_data(ttl=120)
 def get_index_data(ticker):
-    stats = get_year_history_stats(ticker)
-    if not stats:
-        return None
+    stats = get_year_history_stats(ticker)  # 52주 최고가/전일종가 (실패하면 None일 수 있음)
     try:
         current_price = None
         change_pct = None
@@ -260,13 +258,23 @@ def get_index_data(ticker):
         # 네이버가 실패했거나 지원 안 하는 지수는 기존 yfinance 방식으로 폴백
         if current_price is None:
             current_price = get_yf_live_price(ticker)
-            if current_price is None:
+            if current_price is None and stats:
                 current_price = stats["last_close"]
-            change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+            if current_price is None:
+                return None  # 현재가를 아예 못 구하면 표시 불가
+            if change_pct is None and stats:
+                change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
 
-        high_52w = stats["high_52w"]
-        drop_pct = ((current_price - high_52w) / high_52w) * 100
-        return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+        if change_pct is None:
+            change_pct = 0.0
+
+        # 52주 최고가 데이터가 있으면 넣고, 없으면(1년 히스토리 실패) 생략
+        if stats:
+            high_52w = stats["high_52w"]
+            drop_pct = ((current_price - high_52w) / high_52w) * 100
+            return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+        else:
+            return {"current": current_price, "change_pct": change_pct, "high": None, "drop": None}
     except Exception:
         return None
 
@@ -580,7 +588,7 @@ def render_market_overview():
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
             _warm_pool.submit(get_index_data, "^GSPC"),
-            _warm_pool.submit(get_index_data, "QQQ"),
+            _warm_pool.submit(get_index_data, "^IXIC"),
             _warm_pool.submit(get_index_data, "^SOX"),
             _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
@@ -601,7 +609,7 @@ def render_market_overview():
     top_items = {
         "KOSPI": "코스피 (실시간)",
         "^GSPC": "S&P 500",
-        "QQQ": "나스닥(QQQ)",
+        "^IXIC": "나스닥",
         "^SOX": "반도체지수(SOX)",
         "^N225": "니케이225",
         "GC=F": "🥇 골드 (금)"
