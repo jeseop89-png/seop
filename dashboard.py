@@ -537,41 +537,34 @@ def make_sparkline_svg(values, width=110, height=32, color="#4dff4d"):
     </svg>"""
 
 
-def make_gauge_svg(score, width=140, height=76, r=58):
-    """CNN 공포·탐욕지수 스타일의 반원 계기판(속도계) SVG 생성.
-    5구간 컬러 밴드 + 현재 점수를 가리키는 바늘로 직관적으로 표현."""
+def make_gauge_svg(score, width=140, height=76, r=58, label=""):
+    """CNN 공포·탐욕지수 스타일의 반원 계기판. 컬러 밴드 없이 회색 반원 하나 +
+    바늘 + 가운데 점수 숫자, 아래 상태 텍스트(예: Fear)로 실제 CNN처럼 표현."""
     score = max(0, min(100, score))
     cx, cy = width / 2, height - 4
 
-    bands = [
-        (180, 144, "#ff4d4d"),  # 극단적 공포
-        (144, 108, "#ff944d"),  # 공포
-        (108, 72, "#aaaaaa"),   # 중립
-        (72, 36, "#4dff4d"),    # 탐욕
-        (36, 0, "#00ffcc"),     # 극단적 탐욕
-    ]
-    band_svg = ""
-    steps = 10
-    for start_deg, end_deg, color in bands:
-        pts = []
-        for i in range(steps + 1):
-            t = start_deg + (end_deg - start_deg) * (i / steps)
-            rad = math.radians(t)
-            x = cx + r * math.cos(rad)
-            y = cy - r * math.sin(rad)
-            pts.append(f"{x:.1f},{y:.1f}")
-        band_svg += f'<polyline points="{" ".join(pts)}" fill="none" stroke="{color}" stroke-width="9" />'
+    # 회색 반원 아크 하나 (180도 -> 0도)
+    arc_pts = []
+    steps = 40
+    for i in range(steps + 1):
+        t = 180 - (180 * i / steps)
+        rad = math.radians(t)
+        x = cx + r * math.cos(rad)
+        y = cy - r * math.sin(rad)
+        arc_pts.append(f"{x:.1f},{y:.1f}")
+    arc_svg = f'<polyline points="{" ".join(arc_pts)}" fill="none" stroke="#555555" stroke-width="7" stroke-linecap="round" />'
 
     needle_theta = 180 - (score / 100) * 180
     rad = math.radians(needle_theta)
-    needle_len = r - 14
+    needle_len = r - 10
     nx = cx + needle_len * math.cos(rad)
     ny = cy - needle_len * math.sin(rad)
 
     return f"""<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMax meet" style="display:block; max-width:100%;">
-        {band_svg}
+        {arc_svg}
         <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
         <circle cx="{cx}" cy="{cy}" r="4" fill="#ffffff"/>
+        <text x="{cx}" y="{cy - 14}" text-anchor="middle" font-size="20" font-weight="800" fill="#ffffff">{score}</text>
     </svg>"""
 
 
@@ -697,20 +690,24 @@ def render_market_overview():
     with macro_cols[5]:
         fg_score, fg_status = get_cnn_fear_greed()
 
-        if "극단적 공포" in fg_status: theme_color = "#ff4d4d"
-        elif "공포" in fg_status: theme_color = "#ff944d"
-        elif "중립" in fg_status: theme_color = "#aaaaaa"
-        elif "극단적 탐욕" in fg_status: theme_color = "#00ffcc"
-        else: theme_color = "#4dff4d"
+        # CNN처럼 영문 상태 라벨 매핑 (색상 없이 텍스트만)
+        en_map = {
+            "극단적 공포": "Extreme Fear",
+            "공포": "Fear",
+            "중립": "Neutral",
+            "탐욕": "Greed",
+            "극단적 탐욕": "Extreme Greed",
+        }
+        en_label = en_map.get(fg_status, fg_status)
 
-        gauge_svg = make_gauge_svg(fg_score, width=130, height=58, r=42)
+        gauge_svg = make_gauge_svg(fg_score, width=130, height=64, r=46)
 
         st.markdown(
             (
-                '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;">'
-                '<div style="font-size:14px;font-weight:700;margin-bottom:6px;">📊 공포·탐욕지수</div>'
+                '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;">'
+                '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">공포·탐욕지수</div>'
                 f'<div style="flex:1 1 auto;min-height:0;min-width:0;display:flex;align-items:flex-end;justify-content:center;line-height:0;">{gauge_svg}</div>'
-                f'<div style="flex:0 0 auto;text-align:center;margin-top:4px;"><span style="font-size:16px;font-weight:900;color:{theme_color};">{fg_score}</span> <span style="font-size:11px;font-weight:bold;color:{theme_color};margin-left:4px;">{fg_status}</span></div>'
+                f'<div style="flex:0 0 auto;text-align:center;margin-top:4px;"><span style="font-size:13px;font-weight:700;color:#ffffff;">{en_label}</span> <span style="font-size:11px;color:#888;">({fg_status})</span></div>'
                 '</div>'
             ),
             unsafe_allow_html=True
@@ -1582,10 +1579,10 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             )
 
             if shortfall > 0:
-                shortfall_txt = f"🛒매수 {fmt_money(shortfall, is_usd)}" + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                shortfall_txt = f"매수 {fmt_money(shortfall, is_usd)}" + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
                 row_cols[12].markdown(nowrap(f"<span style='color:#ff4d4d;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
             elif shortfall < 0:
-                shortfall_txt = f"💰판매 {fmt_money(abs(shortfall), is_usd)}" + (f" ({abs(shortfall) * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                shortfall_txt = f"판매 {fmt_money(abs(shortfall), is_usd)}" + (f" ({abs(shortfall) * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
                 row_cols[12].markdown(nowrap(f"<span style='color:#4d94ff;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
             else:
                 row_cols[12].write("-")
@@ -1604,6 +1601,59 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
 
         if row_cols[13].button("✏️", key=f"edit_{portfolio_name}_{i}", help="수량/평단가/목표비중 수정 및 삭제"):
             edit_stock_dialog(portfolio_name, i)
+
+
+def render_weight_donut(rows, total_eval_amount):
+    """포트폴리오 종목별 현재 비중을 도넛(원형) 차트로 표시."""
+    items = []
+    for r in rows:
+        if r["eval_amount"] and total_eval_amount > 0:
+            w = r["eval_amount"] / total_eval_amount * 100
+            items.append((get_display_name(r["ticker"], r["name"]), w))
+    if not items:
+        return
+    items.sort(key=lambda x: -x[1])
+
+    palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+               "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
+
+    size, r_out, r_in = 180, 80, 48
+    cx = cy = size / 2
+    segments = ""
+    legend = ""
+    angle = -90.0
+    for i, (name, w) in enumerate(items):
+        color = palette[i % len(palette)]
+        sweep = w / 100 * 360
+        a0 = math.radians(angle)
+        a1 = math.radians(angle + sweep)
+        x0o, y0o = cx + r_out * math.cos(a0), cy + r_out * math.sin(a0)
+        x1o, y1o = cx + r_out * math.cos(a1), cy + r_out * math.sin(a1)
+        x0i, y0i = cx + r_in * math.cos(a1), cy + r_in * math.sin(a1)
+        x1i, y1i = cx + r_in * math.cos(a0), cy + r_in * math.sin(a0)
+        large = 1 if sweep > 180 else 0
+        segments += (
+            f'<path d="M {x0o:.2f} {y0o:.2f} A {r_out} {r_out} 0 {large} 1 {x1o:.2f} {y1o:.2f} '
+            f'L {x0i:.2f} {y0i:.2f} A {r_in} {r_in} 0 {large} 0 {x1i:.2f} {y1i:.2f} Z" fill="{color}" />'
+        )
+        legend += (
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;white-space:nowrap;">'
+            f'<span style="width:10px;height:10px;border-radius:2px;background:{color};display:inline-block;flex:0 0 auto;"></span>'
+            f'<span style="font-size:12px;color:#ddd;">{name}</span>'
+            f'<span style="font-size:12px;color:#fff;font-weight:700;margin-left:auto;">{w:.1f}%</span>'
+            '</div>'
+        )
+        angle += sweep
+
+    donut_svg = f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{segments}</svg>'
+
+    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:15px;font-weight:700;margin-bottom:8px;'>📊 종목별 비중</div>", unsafe_allow_html=True)
+    dcols = st.columns([1, 1])
+    with dcols[0]:
+        st.markdown(f'<div style="display:flex;justify-content:center;">{donut_svg}</div>', unsafe_allow_html=True)
+    with dcols[1]:
+        st.markdown(f'<div style="padding-top:8px;">{legend}</div>', unsafe_allow_html=True)
 
 
 def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
@@ -1658,11 +1708,11 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             shortfall = target_amount - r["eval_amount"]
             if shortfall > 0:
                 # 목표보다 적게 담김 -> 더 사야 함
-                adjust_val = f'<span style="color:#ff4d4d;">🛒 매수 {fmt_money(shortfall, is_usd)}</span>'
+                adjust_val = f'<span style="color:#ff4d4d;">매수 {fmt_money(shortfall, is_usd)}</span>'
                 adjust_label = "부족 (매수 필요)"
             elif shortfall < 0:
                 # 목표보다 많이 담김 -> 팔아야 함
-                adjust_val = f'<span style="color:#4d94ff;">💰 판매 {fmt_money(abs(shortfall), is_usd)}</span>'
+                adjust_val = f'<span style="color:#4d94ff;">판매 {fmt_money(abs(shortfall), is_usd)}</span>'
                 adjust_label = "초과 (판매 필요)"
             else:
                 adjust_val = "-"
@@ -1785,3 +1835,6 @@ else:
                     render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
                 with st.container(key=f"auto_table_{p_idx}"):
                     render_portfolio_table(p_name, rows, total_eval_amount)
+
+            # 포트폴리오 맨 밑에 종목별 비중 도넛차트
+            render_weight_donut(rows, total_eval_amount)
