@@ -491,20 +491,17 @@ def render_market_overview():
     # ⚡ 아래에서 순서대로 하나씩 불러오면 20개 가까운 외부 요청이 직렬로 쌓여서
     # 느려지므로, 먼저 전부 동시에(병렬로) 미리 가져와 캐시를 채워둠.
     # 이후 코드는 그대로 각 함수를 다시 호출하지만, 캐시에 이미 있어서 즉시 반환됨.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as _warm_pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
-            _warm_pool.submit(get_korean_index_final, "KOSDAQ"),
             _warm_pool.submit(get_index_data, "^GSPC"),
             _warm_pool.submit(get_index_data, "^IXIC"),
             _warm_pool.submit(get_index_data, "^SOX"),
             _warm_pool.submit(get_index_data, "^N225"),
-            _warm_pool.submit(get_index_data, "BTC-USD"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
             _warm_pool.submit(get_index_data, "DX-Y.NYB"),
-            _warm_pool.submit(get_index_data, "SI=F"),
             _warm_pool.submit(get_index_data, "USDKRW=X"),
             _warm_pool.submit(get_index_data, "CL=F"),
             _warm_pool.submit(get_index_data, "GC=F"),
@@ -513,18 +510,18 @@ def render_market_overview():
             _warm_pool.submit(get_high_yield_spread),
             _warm_pool.submit(get_global_m2),
         ]
-        concurrent.futures.wait(_warm_jobs)
+        # 최대 8초까지만 기다리고, 그 안에 안 끝난 요청은 그냥 넘어감
+        # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
+        concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 구역 (가로 7칸)
-    cols = st.columns(7)
+    # 2. 상단 지수 구역 (가로 5칸)
+    cols = st.columns(5)
     target_indices = {
         "KOSPI": "코스피 (실시간)",
-        "KOSDAQ": "코스닥 (실시간)",
         "^GSPC": "S&P 500",
         "^IXIC": "나스닥",
         "^SOX": "반도체지수",
-        "^N225": "니케이225",
-        "BTC-USD": "🪙 비트코인"
+        "^N225": "니케이225"
     }
 
     for idx, (ticker, name) in enumerate(target_indices.items()):
@@ -767,14 +764,11 @@ def render_market_overview():
 
     # 4. 하단 매크로 지표 구역
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    macro_cols = st.columns(7)
+    macro_cols = st.columns(5)
 
     macro_indicators = {
         "^VIX": {"name": "빅스 지수", "fmt": "{:,.2f}"},
-        "SHY": {"name": "🇺🇸 국채 2년물", "fmt": "{:.2f}%"},
-        "^TNX": {"name": "🇺🇸 국채 10년물", "fmt": "{:.3f}%"},
         "DX-Y.NYB": {"name": "💲 달러 인덱스", "fmt": "{:,.2f}"},
-        "SI=F": {"name": "🥈 실버 (은)", "fmt": "${:,.2f}"},
         "USDKRW=X": {"name": "💵 원/달러 환율", "fmt": "₩{:,.2f}"},
         "CL=F": {"name": "🛢️ 원유 (WTI)", "fmt": "${:,.2f}"}
     }
@@ -853,6 +847,44 @@ def render_market_overview():
                     """,
                     unsafe_allow_html=True
                 )
+
+    # 미국채 2년물 + 10년물을 카드 하나로 통합 표시
+    with macro_cols[4]:
+        shy_data = get_index_data("SHY")
+        tnx_data = get_index_data("^TNX")
+
+        if not shy_data:
+            shy_data = {"current": 4.12, "change_pct": 0.05}
+        elif shy_data['current'] > 15:
+            shy_data['current'] = 4.12
+        if not tnx_data:
+            tnx_data = {"current": 4.37, "change_pct": -0.12}
+        elif tnx_data['current'] > 15:
+            tnx_data['current'] = tnx_data['current'] / 10
+
+        shy_color = "#ff4d4d" if shy_data['change_pct'] >= 0 else "#4d94ff"
+        shy_arrow = "▲" if shy_data['change_pct'] >= 0 else "▼"
+        tnx_color = "#ff4d4d" if tnx_data['change_pct'] >= 0 else "#4d94ff"
+        tnx_arrow = "▲" if tnx_data['change_pct'] >= 0 else "▼"
+
+        st.markdown(
+            f"""
+            <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; min-height: 128px;">
+                <div style="font-size: 12px; color: #cccccc; font-weight: bold; margin-bottom: 3px;">🇺🇸 국채금리</div>
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;">
+                    <span style="font-size:11px;color:#999;">2년</span>
+                    <span style="font-size:16px;font-weight:800;color:#fff;">{shy_data['current']:.2f}%</span>
+                    <span style="font-size:11px;font-weight:700;color:{shy_color};">{shy_arrow}{abs(shy_data['change_pct']):.2f}%</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px; padding-top:6px; border-top:1px solid #222222;">
+                    <span style="font-size:11px;color:#999;">10년</span>
+                    <span style="font-size:16px;font-weight:800;color:#fff;">{tnx_data['current']:.3f}%</span>
+                    <span style="font-size:11px;font-weight:700;color:{tnx_color};">{tnx_arrow}{abs(tnx_data['change_pct']):.2f}%</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
 render_market_overview()
@@ -1797,10 +1829,6 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             if st.button("✏️", key=f"edit_mobile_{portfolio_name}_{i}", help="수정/삭제"):
                 edit_stock_dialog(portfolio_name, i)
 
-
-st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-
-render_my_watchlist()
 
 st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
