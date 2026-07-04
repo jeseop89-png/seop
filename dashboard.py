@@ -143,7 +143,7 @@ def get_year_history_stats(ticker):
     return None
 
 
-@st.cache_data(ttl=50)
+@st.cache_data(ttl=120)
 def get_korean_index_final(code):
     ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
     ticker = ticker_map.get(code)
@@ -195,7 +195,7 @@ NAVER_WORLD_SYMBOLS = {
 }
 
 
-@st.cache_data(ttl=50)
+@st.cache_data(ttl=120)
 def get_naver_world_index(naver_symbol):
     try:
         url = f"https://finance.naver.com/world/sise.naver?symbol={naver_symbol}"
@@ -219,7 +219,7 @@ def get_naver_world_index(naver_symbol):
         return None
 
 
-@st.cache_data(ttl=50)
+@st.cache_data(ttl=120)
 def get_index_data(ticker):
     stats = get_year_history_stats(ticker)
     if not stats:
@@ -851,6 +851,7 @@ def search_naver_autocomplete(query):
         return []
 
 
+@st.cache_data(ttl=300)
 def search_stock(query):
     if not query or len(query.strip()) < 1:
         return []
@@ -886,9 +887,14 @@ def search_stock(query):
                 seen_symbols.add(symbol)
 
     # 2) yfinance 검색 (영문명/티커에 강함)
+    #    yf.Search()는 타임아웃이 없어서 야후가 느리게 응답하면 페이지 전체가
+    #    그 시간만큼 멈춰버림 (다른 부분엔 문제없는데 검색만 하면 화면 전체가
+    #    "연결중"으로 보이는 원인이 이거였음) -> 3초 안에 안 끝나면 그냥 포기하고 넘어감
+    _search_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     try:
-        s = yf.Search(query, max_results=8)
-        for q in s.quotes:
+        _search_future = _search_pool.submit(lambda: yf.Search(query, max_results=8).quotes)
+        quotes = _search_future.result(timeout=3)
+        for q in quotes:
             symbol = q.get("symbol")
             name = q.get("shortname") or q.get("longname") or symbol
             if symbol and symbol not in seen_symbols:
@@ -900,6 +906,10 @@ def search_stock(query):
                 seen_symbols.add(symbol)
     except Exception:
         pass
+    finally:
+        # wait=False: 시간 초과된 스레드가 백그라운드에서 알아서 끝나도록 두고,
+        # 여기서 그 스레드 종료까지 기다리지 않고 바로 다음으로 진행함
+        _search_pool.shutdown(wait=False)
 
     # 3) 네이버 자동완성 (한글 종목명 보완, 위 두 방법으로 못 찾았을 때)
     if not results:
