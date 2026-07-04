@@ -558,8 +558,10 @@ def render_market_overview():
     with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
+            _warm_pool.submit(get_index_data, "^GSPC"),
             _warm_pool.submit(get_index_data, "QQQ"),
             _warm_pool.submit(get_index_data, "^SOX"),
+            _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
@@ -572,12 +574,14 @@ def render_market_overview():
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 구역 (코스피 / QQQ / 반도체지수)
-    cols = st.columns(3)
+    # 2. 상단 지수 구역
+    cols = st.columns(5)
     top_items = {
         "KOSPI": "코스피 (실시간)",
+        "^GSPC": "S&P 500",
         "QQQ": "QQQ (나스닥100)",
-        "^SOX": "반도체지수(SOX)"
+        "^SOX": "반도체지수(SOX)",
+        "^N225": "니케이225"
     }
 
     for idx, (ticker, name) in enumerate(top_items.items()):
