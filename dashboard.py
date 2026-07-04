@@ -35,28 +35,23 @@ st.markdown(
         border-color: #4dd2ff;
         color: #ffffff;
     }
-    /* 모바일에서 st.columns가 세로로 쌓이지 않고, PC처럼 가로 배치를 유지한 채
-       옆으로 스크롤해서 보도록 강제함 (좁은 화면에서 컬럼이 자동으로 쌓이는
-       Streamlit 기본 동작을 막음). 지수/매크로/금리 카드 등 짧은 가로 배치용. */
+    /* 모바일에서 st.columns가 한 줄로 쭉 세로로 쌓이지 않고, 화면 폭에 맞춰
+       2개씩 자동으로 줄바꿈되는 격자(그리드)로 보이게 함 (옆으로 스크롤 불필요) */
     @media (max-width: 900px) {
         div[data-testid="stHorizontalBlock"] {
-            flex-wrap: nowrap !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch;
-            scroll-snap-type: x proximity;
-            padding-bottom: 8px;
+            flex-wrap: wrap !important;
+            row-gap: 10px;
         }
         div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
-            min-width: 132px;
-            flex: 0 0 auto !important;
+            flex: 1 1 44% !important;
+            min-width: 44% !important;
             width: auto !important;
-            scroll-snap-align: start;
         }
         div[data-testid="stButton"] > button {
             font-size: 15px;
             padding: 6px 12px;
         }
-        /* 포트폴리오 테이블(14칸)은 가로 스크롤 대신 카드형으로 따로 보여주므로,
+        /* 포트폴리오 테이블(14칸)은 그리드로도 보기 불편하므로 카드형으로 따로 보여주고,
            원본 테이블(desktop_table_ 로 시작하는 컨테이너)은 모바일에서 숨김 */
         div[class*="st-key-desktop_table_"] {
             display: none !important;
