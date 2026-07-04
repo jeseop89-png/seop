@@ -574,19 +574,20 @@ def render_market_overview():
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 구역 (5개, 동일 크기)
-    cols = st.columns(5)
+    # 2. 상단 지수 구역 (6개: 지수 5 + 골드, 동일 크기)
+    cols = st.columns(6)
     top_items = {
         "KOSPI": "코스피 (실시간)",
         "^GSPC": "S&P 500",
         "QQQ": "나스닥",
         "^SOX": "반도체지수(SOX)",
-        "^N225": "니케이225"
+        "^N225": "니케이225",
+        "GC=F": "🥇 골드 (금)"
     }
 
-    def index_card(name, data, unit="", extra_html=""):
-        """지수/ETF/원자재 공용 카드 (가격/등락/52주최고/신고대비). 높이를 150px로 고정해서
-        어디에 쓰든(지수든 매크로든) 카드 크기가 항상 똑같이 맞춰지도록 함.
+    def index_card(name, data, unit="", suffix="", decimals=2, extra_html=""):
+        """지수/ETF/원자재/금리 공용 카드 (가격/등락/52주최고/신고대비). 높이를 150px로 고정해서
+        어디에 쓰든 카드 크기가 항상 똑같이 맞춰지도록 함.
         주의: 반드시 들여쓰기 없는 한 줄 문자열로 조립해야 함 — 여러 줄+들여쓰기로 만들면
         Streamlit 마크다운이 이를 "코드블록"으로 오인해서 HTML이 그대로 텍스트로 노출됨."""
         if not data:
@@ -602,14 +603,14 @@ def render_market_overview():
         if data.get("high") is not None and data.get("drop") is not None:
             high_drop_html = (
                 '<div style="line-height:1.5;font-size:11px;color:#999;">'
-                f'52주최고: <span style="color:#fff;font-weight:700;">{unit}{data["high"]:,.2f}</span><br>'
+                f'52주최고: <span style="color:#fff;font-weight:700;">{unit}{data["high"]:,.{decimals}f}{suffix}</span><br>'
                 f'신고대비: <span style="color:#4d94ff;font-weight:700;">{data["drop"]:.2f}%</span>'
                 '</div>'
             )
         return (
             '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;">'
             f'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">{name}</div>'
-            f'<div style="margin-bottom:4px;"><span style="font-size:19px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.2f}</span></div>'
+            f'<div style="margin-bottom:4px;"><span style="font-size:19px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.{decimals}f}{suffix}</span></div>'
             f'<div style="margin-bottom:6px;"><span style="font-size:13px;font-weight:800;color:{pct_color};background-color:{pct_color}22;padding:2px 7px;border-radius:5px;">{arrow_sign} {abs(data["change_pct"]):.2f}%</span></div>'
             f'{high_drop_html}'
             f'{extra_html}'
@@ -622,7 +623,7 @@ def render_market_overview():
             unit = "$" if ticker != "KOSPI" else ""
             st.markdown(index_card(name, data, unit), unsafe_allow_html=True)
 
-    # 3. 하단 매크로 구역: 빅스/원달러환율/원유/국채금리/골드/공포탐욕 6개를 동일한 크기로
+    # 3. 하단 매크로 구역: 빅스/원달러환율/원유/국채2년/국채10년/공포탐욕 6개를 동일한 크기로
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
     macro_cols = st.columns(6)
 
@@ -648,44 +649,19 @@ def render_market_overview():
 
     with macro_cols[3]:
         shy_data = get_index_data("SHY")
-        tnx_data = get_index_data("^TNX")
-
         if not shy_data:
-            shy_data = {"current": 4.12, "change_pct": 0.05}
+            shy_data = {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
         elif shy_data['current'] > 15:
             shy_data['current'] = 4.12
-        if not tnx_data:
-            tnx_data = {"current": 4.37, "change_pct": -0.12}
-        elif tnx_data['current'] > 15:
-            tnx_data['current'] = tnx_data['current'] / 10
-
-        shy_color = "#ff4d4d" if shy_data['change_pct'] >= 0 else "#4d94ff"
-        shy_arrow = "▲" if shy_data['change_pct'] >= 0 else "▼"
-        tnx_color = "#ff4d4d" if tnx_data['change_pct'] >= 0 else "#4d94ff"
-        tnx_arrow = "▲" if tnx_data['change_pct'] >= 0 else "▼"
-
-        st.markdown(
-            f"""
-            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box;">
-                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">🇺🇸 국채금리</div>
-                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;">
-                    <span style="font-size:11px;color:#999;">2년</span>
-                    <span style="font-size:16px;font-weight:800;color:#fff;">{shy_data['current']:.2f}%</span>
-                    <span style="font-size:11px;font-weight:700;color:{shy_color};">{shy_arrow}{abs(shy_data['change_pct']):.2f}%</span>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; padding-top:10px; border-top:1px solid #222222;">
-                    <span style="font-size:11px;color:#999;">10년</span>
-                    <span style="font-size:16px;font-weight:800;color:#fff;">{tnx_data['current']:.3f}%</span>
-                    <span style="font-size:11px;font-weight:700;color:{tnx_color};">{tnx_arrow}{abs(tnx_data['change_pct']):.2f}%</span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown(index_card("🇺🇸 국채 2년물", shy_data, unit="", suffix="%"), unsafe_allow_html=True)
 
     with macro_cols[4]:
-        gold_data = get_index_data("GC=F")
-        st.markdown(index_card("🥇 골드 (금)", gold_data, unit="$"), unsafe_allow_html=True)
+        tnx_data = get_index_data("^TNX")
+        if not tnx_data:
+            tnx_data = {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
+        elif tnx_data['current'] > 15:
+            tnx_data['current'] = tnx_data['current'] / 10
+        st.markdown(index_card("🇺🇸 국채 10년물", tnx_data, unit="", suffix="%", decimals=3), unsafe_allow_html=True)
 
     with macro_cols[5]:
         fg_score, fg_status = get_cnn_fear_greed()
@@ -699,18 +675,13 @@ def render_market_overview():
         gauge_svg = make_gauge_svg(fg_score, width=130, height=58, r=42)
 
         st.markdown(
-            f"""
-            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box; display:flex; flex-direction:column; overflow:hidden;">
-                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">📊 공포·탐욕지수</div>
-                <div style="flex:1 1 auto; min-height:0; min-width:0; display:flex; align-items:flex-end; justify-content:center; line-height:0;">
-                    {gauge_svg}
-                </div>
-                <div style="flex:0 0 auto; text-align:center; margin-top:4px;">
-                    <span style="font-size: 16px; font-weight: 900; color: {theme_color};">{fg_score}</span>
-                    <span style="font-size: 11px; font-weight: bold; color: {theme_color}; margin-left: 4px;">{fg_status}</span>
-                </div>
-            </div>
-            """,
+            (
+                '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;">'
+                '<div style="font-size:14px;font-weight:700;margin-bottom:6px;">📊 공포·탐욕지수</div>'
+                f'<div style="flex:1 1 auto;min-height:0;min-width:0;display:flex;align-items:flex-end;justify-content:center;line-height:0;">{gauge_svg}</div>'
+                f'<div style="flex:0 0 auto;text-align:center;margin-top:4px;"><span style="font-size:16px;font-weight:900;color:{theme_color};">{fg_score}</span> <span style="font-size:11px;font-weight:bold;color:{theme_color};margin-left:4px;">{fg_status}</span></div>'
+                '</div>'
+            ),
             unsafe_allow_html=True
         )
 
