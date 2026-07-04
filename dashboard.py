@@ -51,17 +51,6 @@ st.markdown(
             font-size: 15px;
             padding: 6px 12px;
         }
-        /* 포트폴리오 테이블(14칸)은 그리드로도 보기 불편하므로 카드형으로 따로 보여주고,
-           원본 테이블(desktop_table_ 로 시작하는 컨테이너)은 모바일에서 숨김 */
-        div[class*="st-key-desktop_table_"] {
-            display: none !important;
-        }
-    }
-    @media (min-width: 901px) {
-        /* PC에서는 모바일 전용 카드뷰(mobile_table_ 컨테이너)를 숨김 */
-        div[class*="st-key-mobile_table_"] {
-            display: none !important;
-        }
     }
     </style>
     """,
@@ -1724,7 +1713,4 @@ else:
                     st.rerun()
 
             st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-            with st.container(key=f"desktop_table_{p_idx}"):
-                render_portfolio_table(p_name, rows, total_eval_amount)
-            with st.container(key=f"mobile_table_{p_idx}"):
-                render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+            render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
