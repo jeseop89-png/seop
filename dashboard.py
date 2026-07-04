@@ -181,16 +181,68 @@ def get_korean_index_final(code):
     return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
 
 
+# ==========================================
+# 🌏 네이버 "월드증시" 페이지로 해외지수 가져오기 (실험적)
+#   -> 한국 사이트라 클라우드 서버에서도 코스피처럼 빠를 가능성이 높음.
+#      단, 심볼 코드/페이지 구조가 바뀌면 실패할 수 있어 실패 시
+#      자동으로 기존 yfinance 방식으로 폴백함 (아래 get_index_data 참고).
+# ==========================================
+NAVER_WORLD_SYMBOLS = {
+    "^GSPC": "SPI@SPX",    # S&P 500
+    "^IXIC": "NAS@IXIC",   # 나스닥 종합
+    "^N225": "NII@NI225",  # 니케이225
+    # ^SOX(필라델피아 반도체지수)는 네이버 월드증시에 없어서 제외 (yfinance 그대로 사용)
+}
+
+
+@st.cache_data(ttl=50)
+def get_naver_world_index(naver_symbol):
+    try:
+        url = f"https://finance.naver.com/world/sise.naver?symbol={naver_symbol}"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        price_tag = soup.select_one("#now_value") or soup.select_one(".now_value")
+        change_tag = soup.select_one("#change_value_and_rate") or soup.select_one(".change_value_and_rate")
+        if not price_tag:
+            return None
+
+        current_price = float(price_tag.text.replace(",", "").strip())
+        change_pct = 0.0
+        if change_tag:
+            m = re.search(r'([+-]?\d+\.\d+)%', change_tag.text)
+            if m:
+                change_pct = float(m.group(1))
+        return {"current": current_price, "change_pct": change_pct}
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=50)
 def get_index_data(ticker):
     stats = get_year_history_stats(ticker)
     if not stats:
         return None
     try:
-        current_price = get_yf_live_price(ticker)
+        current_price = None
+        change_pct = None
+
+        # 네이버 월드증시로 먼저 시도 (지원하는 지수만) - 코스피처럼 빠를 가능성이 높음
+        naver_symbol = NAVER_WORLD_SYMBOLS.get(ticker)
+        if naver_symbol:
+            naver_data = get_naver_world_index(naver_symbol)
+            if naver_data:
+                current_price = naver_data["current"]
+                change_pct = naver_data["change_pct"]
+
+        # 네이버가 실패했거나 지원 안 하는 지수는 기존 yfinance 방식으로 폴백
         if current_price is None:
-            current_price = stats["last_close"]
-        change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+            current_price = get_yf_live_price(ticker)
+            if current_price is None:
+                current_price = stats["last_close"]
+            change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+
         high_52w = stats["high_52w"]
         drop_pct = ((current_price - high_52w) / high_52w) * 100
         return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
