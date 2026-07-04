@@ -188,8 +188,10 @@ def get_korean_index_final(code):
 #      자동으로 기존 yfinance 방식으로 폴백함 (아래 get_index_data 참고).
 # ==========================================
 NAVER_WORLD_SYMBOLS = {
+    "^GSPC": "SPI@SPX",    # S&P 500
+    "^IXIC": "NAS@IXIC",   # 나스닥 종합
     "^N225": "NII@NI225",  # 니케이225
-    # S&P500/나스닥/반도체지수는 이제 ETF(VOO/QQQ/SOXX)로 받아오므로 네이버 월드증시 매핑 불필요
+    # ^SOX(필라델피아 반도체지수)는 정확한 네이버 심볼을 확인 못해 제외 (yfinance 그대로)
 }
 
 
@@ -556,9 +558,9 @@ def render_market_overview():
     with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
-            _warm_pool.submit(get_index_data, "VOO"),
-            _warm_pool.submit(get_index_data, "QQQ"),
-            _warm_pool.submit(get_index_data, "SOXX"),
+            _warm_pool.submit(get_index_data, "^GSPC"),
+            _warm_pool.submit(get_index_data, "^IXIC"),
+            _warm_pool.submit(get_index_data, "^SOX"),
             _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
@@ -578,9 +580,9 @@ def render_market_overview():
     cols = st.columns(5)
     target_indices = {
         "KOSPI": "코스피 (실시간)",
-        "VOO": "S&P 500",
-        "QQQ": "나스닥",
-        "SOXX": "반도체지수",
+        "^GSPC": "S&P 500",
+        "^IXIC": "나스닥",
+        "^SOX": "반도체지수",
         "^N225": "니케이225"
     }
 
