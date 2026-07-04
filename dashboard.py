@@ -63,6 +63,16 @@ st.markdown(
             min-width: 90px !important;
             width: auto !important;
         }
+        /* 자동 모드: 좁은 화면(모바일)에서는 카드만 보이고 테이블은 숨김 */
+        div[class*="st-key-auto_table_"] {
+            display: none !important;
+        }
+    }
+    @media (min-width: 901px) {
+        /* 자동 모드: 넓은 화면(PC)에서는 테이블만 보이고 카드는 숨김 */
+        div[class*="st-key-auto_card_"] {
+            display: none !important;
+        }
     }
     </style>
     """,
@@ -1612,6 +1622,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
 
             cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
+            buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
             profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
 
             diff_pct = current_weight - target_weight
@@ -1622,8 +1633,18 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             else:
                 signal_color, signal_tag = "#ff4d4d", "부족"
 
-            left_col = kv("평가금액", eval_txt) + kv("수익", profit_val) + kv("비중", f'{current_weight:.0f}% <span style="color:#888;font-size:12px;">/ 목표 {target_weight:.0f}%</span>')
-            right_col = kv("평단가", avg_txt) + kv("현재가", cur_txt) + kv("신호", f'<span style="color:{signal_color};">{signal_tag} ({diff_pct:+.1f}%p)</span>')
+            # 부족한금액 = 목표비중까지 채우려면 더 사야 하는 금액
+            target_amount = (target_weight / 100) * total_eval_amount
+            shortfall = target_amount - r["eval_amount"]
+            if shortfall > 0:
+                short_val = f'<span style="color:#ff4d4d;">+{fmt_money(shortfall, is_usd)}</span>'
+            elif shortfall < 0:
+                short_val = f'<span style="color:#4d94ff;">{fmt_money(shortfall, is_usd)}</span>'
+            else:
+                short_val = "-"
+
+            left_col = kv("매수금액", buy_amt_txt) + kv("평가금액", eval_txt) + kv("수익", profit_val) + kv("비중", f'{current_weight:.0f}% <span style="color:#888;font-size:12px;">/ 목표 {target_weight:.0f}%</span>')
+            right_col = kv("평단가", avg_txt) + kv("현재가", cur_txt) + kv("신호", f'<span style="color:{signal_color};">{signal_tag} ({diff_pct:+.1f}%p)</span>') + kv("부족한금액", short_val)
         else:
             left_col = kv("평가금액", "⏳") + kv("평단가", avg_txt)
             right_col = kv("현재가", "⏳") + kv("비중", f'목표 {target_weight:.0f}%')
@@ -1661,8 +1682,10 @@ if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
-    is_mobile_view = st.checkbox("📱 모바일 보기 (세로 카드형)", value=False, key="mobile_view_toggle",
-                                  help="PC에서는 끄면 가로 테이블, 켜면 세로 카드로 보여요. 모바일에서 볼 땐 켜두세요.")
+    view_mode = st.radio(
+        "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
+        key="view_mode_radio", label_visibility="collapsed"
+    )
     tabs = st.tabs([f"📁 {name}" for name in portfolio_names])
 
     for p_idx, (p_name, tab) in enumerate(zip(portfolio_names, tabs)):
@@ -1726,8 +1749,14 @@ else:
                     st.rerun()
 
             st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-            if is_mobile_view:
+            if view_mode == "카드형":
                 render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
-            else:
+            elif view_mode == "테이블형":
                 with st.container(key=f"pc_table_{p_idx}"):
+                    render_portfolio_table(p_name, rows, total_eval_amount)
+            else:
+                # 자동: 카드/테이블 둘 다 그려두고, 화면 폭에 따라 CSS가 하나만 보여줌
+                with st.container(key=f"auto_card_{p_idx}"):
+                    render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+                with st.container(key=f"auto_table_{p_idx}"):
                     render_portfolio_table(p_name, rows, total_eval_amount)
