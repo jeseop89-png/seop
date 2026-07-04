@@ -1628,26 +1628,24 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             left_col = kv("평가금액", "⏳") + kv("평단가", avg_txt)
             right_col = kv("현재가", "⏳") + kv("비중", f'목표 {target_weight:.0f}%')
 
-        card_cols = st.columns([5, 1])
-        with card_cols[0]:
-            st.markdown(
-                (
-                    '<div style="background-color:#161616;border-radius:8px;padding:12px 16px;margin-bottom:8px;">'
-                    '<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #262626;padding-bottom:6px;">'
-                    f'<span style="font-size:15px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
-                    f'<span style="font-size:12px;color:#999;">수량 <span style="color:#fff;font-weight:700;">{r["qty"]:,.0f}</span></span>'
-                    '</div>'
-                    '<div style="display:flex;gap:16px;">'
-                    f'<div style="flex:1;min-width:0;">{left_col}</div>'
-                    f'<div style="flex:1;min-width:0;">{right_col}</div>'
-                    '</div>'
-                    '</div>'
-                ),
-                unsafe_allow_html=True
-            )
-        with card_cols[1]:
-            if st.button("✏️", key=f"edit_mobile_{portfolio_name}_{i}", help="수정/삭제"):
-                edit_stock_dialog(portfolio_name, i)
+        st.markdown(
+            (
+                '<div style="background-color:#161616;border-radius:8px;padding:14px 16px;margin-bottom:2px;width:100%;box-sizing:border-box;">'
+                '<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #262626;padding-bottom:8px;margin-bottom:2px;">'
+                f'<span style="font-size:16px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
+                f'<span style="font-size:12px;color:#999;">수량 <span style="color:#fff;font-weight:700;">{r["qty"]:,.0f}</span></span>'
+                '</div>'
+                '<div style="display:flex;gap:16px;">'
+                f'<div style="flex:1;min-width:0;">{left_col}</div>'
+                f'<div style="flex:1;min-width:0;">{right_col}</div>'
+                '</div>'
+                '</div>'
+            ),
+            unsafe_allow_html=True
+        )
+        if st.button("✏️ 수정 / 삭제", key=f"edit_mobile_{portfolio_name}_{i}", use_container_width=True):
+            edit_stock_dialog(portfolio_name, i)
+        st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
 
 
 st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
