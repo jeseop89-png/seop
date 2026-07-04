@@ -574,8 +574,8 @@ def render_market_overview():
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 + 공포탐욕 + 골드를 한 줄에 동일한 크기로 표시
-    cols = st.columns(7)
+    # 2. 상단 지수 구역 (5개, 동일 크기)
+    cols = st.columns(5)
     top_items = {
         "KOSPI": "코스피 (실시간)",
         "^GSPC": "S&P 500",
@@ -584,8 +584,9 @@ def render_market_overview():
         "^N225": "니케이225"
     }
 
-    def index_card(name, data, ticker=None):
-        """지수/ETF 공용 카드 (가격/등락/52주최고/신고대비)"""
+    def index_card(name, data, unit="", extra_html=""):
+        """지수/ETF/원자재 공용 카드 (가격/등락/52주최고/신고대비). 높이를 150px로 고정해서
+        어디에 쓰든(지수든 매크로든) 카드 크기가 항상 똑같이 맞춰지도록 함."""
         if not data:
             return f"""
             <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box; text-align:center; display:flex; flex-direction:column; justify-content:center;">
@@ -595,7 +596,14 @@ def render_market_overview():
             """
         pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
         arrow_sign = "▲" if data['change_pct'] >= 0 else "▼"
-        unit = "$" if ticker != "KOSPI" else ""
+        high_drop_html = ""
+        if data.get("high") is not None and data.get("drop") is not None:
+            high_drop_html = f"""
+            <div style="line-height:1.5; font-size:11px; color:#999;">
+                52주최고: <span style="color:#fff;font-weight:700;">{unit}{data['high']:,.2f}</span><br>
+                신고대비: <span style="color:#4d94ff;font-weight:700;">{data['drop']:.2f}%</span>
+            </div>
+            """
         return f"""
         <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box;">
             <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">{name}</div>
@@ -605,135 +613,41 @@ def render_market_overview():
             <div style="margin-bottom: 6px;">
                 <span style="font-size: 13px; font-weight: 800; color:{pct_color}; background-color:{pct_color}22; padding:2px 7px; border-radius:5px;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
             </div>
-            <div style="line-height:1.5; font-size:11px; color:#999;">
-                52주최고: <span style="color:#fff;font-weight:700;">{unit}{data['high']:,.2f}</span><br>
-                신고대비: <span style="color:#4d94ff;font-weight:700;">{data['drop']:.2f}%</span>
-            </div>
+            {high_drop_html}
+            {extra_html}
         </div>
         """
 
     for idx, (ticker, name) in enumerate(top_items.items()):
         with cols[idx]:
             data = get_korean_index_final(ticker) if ticker == "KOSPI" else get_index_data(ticker)
-            st.markdown(index_card(name, data, ticker), unsafe_allow_html=True)
+            unit = "$" if ticker != "KOSPI" else ""
+            st.markdown(index_card(name, data, unit), unsafe_allow_html=True)
 
-    with cols[5]:
-        fg_score, fg_status = get_cnn_fear_greed()
-
-        if "극단적 공포" in fg_status: theme_color = "#ff4d4d"
-        elif "공포" in fg_status: theme_color = "#ff944d"
-        elif "중립" in fg_status: theme_color = "#aaaaaa"
-        elif "극단적 탐욕" in fg_status: theme_color = "#00ffcc"
-        else: theme_color = "#4dff4d"
-
-        gauge_svg = make_gauge_svg(fg_score, width=130, height=58, r=42)
-
-        st.markdown(
-            f"""
-            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box; display:flex; flex-direction:column; overflow:hidden;">
-                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">📊 공포·탐욕지수</div>
-                <div style="flex:1 1 auto; min-height:0; min-width:0; display:flex; align-items:flex-end; justify-content:center; line-height:0;">
-                    {gauge_svg}
-                </div>
-                <div style="flex:0 0 auto; text-align:center; margin-top:4px;">
-                    <span style="font-size: 16px; font-weight: 900; color: {theme_color};">{fg_score}</span>
-                    <span style="font-size: 11px; font-weight: bold; color: {theme_color}; margin-left: 4px;">{fg_status}</span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with cols[6]:
-        gold_data = get_index_data("GC=F")
-        st.markdown(index_card("🥇 골드 (금)", gold_data, ticker="GC=F"), unsafe_allow_html=True)
-
-    # 4. 하단 매크로 지표 구역
+    # 3. 하단 매크로 구역: 빅스/원달러환율/원유/국채금리/골드/공포탐욕 6개를 동일한 크기로
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    macro_cols = st.columns(4)
+    macro_cols = st.columns(6)
 
-    macro_indicators = {
-        "^VIX": {"name": "빅스 지수", "fmt": "{:,.2f}"},
-        "USDKRW=X": {"name": "💵 원/달러 환율", "fmt": "₩{:,.2f}"},
-        "CL=F": {"name": "🛢️ 원유 (WTI)", "fmt": "${:,.2f}"}
-    }
+    with macro_cols[0]:
+        vix_data = get_index_data("^VIX")
+        if not vix_data:
+            vix_data = {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
+        vix_v = vix_data['current']
+        if vix_v < 15: vix_msg, vix_color = "🟢안정", "#4dff4d"
+        elif vix_v < 20: vix_msg, vix_color = "🟡유의", "#ffff4d"
+        elif vix_v < 30: vix_msg, vix_color = "🟠경계", "#ff944d"
+        else: vix_msg, vix_color = "🔴위험", "#ff4d4d"
+        vix_extra = f'<div style="margin-top:4px;"><span style="font-size:11px;color:{vix_color};background-color:#222;padding:1px 6px;border-radius:3px;">{vix_msg}</span></div>'
+        st.markdown(index_card("빅스 지수", vix_data, unit="", extra_html=vix_extra), unsafe_allow_html=True)
 
-    for idx, (ticker, info) in enumerate(macro_indicators.items()):
-        with macro_cols[idx]:
-            m_data = get_index_data(ticker)
+    with macro_cols[1]:
+        krw_data = get_index_data("USDKRW=X")
+        st.markdown(index_card("💵 원/달러 환율", krw_data, unit="₩"), unsafe_allow_html=True)
 
-            if not m_data:
-                if ticker == "SHY": m_data = {"current": 4.12, "change_pct": 0.05}
-                elif ticker == "^TNX": m_data = {"current": 4.37, "change_pct": -0.12}
-                elif ticker == "^VIX": m_data = {"current": 14.50, "change_pct": 1.20}
+    with macro_cols[2]:
+        oil_data = get_index_data("CL=F")
+        st.markdown(index_card("🛢️ 원유 (WTI)", oil_data, unit="$"), unsafe_allow_html=True)
 
-            if m_data:
-                if ticker == "SHY" and m_data['current'] > 15: m_data['current'] = 4.12
-                if ticker == "^TNX" and m_data['current'] > 15: m_data['current'] = m_data['current'] / 10
-
-                pct_color = "#ff4d4d" if m_data['change_pct'] >= 0 else "#4d94ff"
-                arrow_sign = "▲" if m_data['change_pct'] >= 0 else "▼"
-                formatted_price = info["fmt"].format(m_data['current'])
-
-                if ticker == "^VIX":
-                    vix_v = m_data['current']
-                    if vix_v < 15: vix_msg, vix_color = "🟢안정", "#4dff4d"
-                    elif vix_v < 20: vix_msg, vix_color = "🟡유의", "#ffff4d"
-                    elif vix_v < 30: vix_msg, vix_color = "🟠경계", "#ff944d"
-                    else: vix_msg, vix_color = "🔴위험", "#ff4d4d"
-
-                    vix_bottom_html = f"""
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-weight: bold;">
-                        <span style="font-size: 13px; color: {pct_color};">{arrow_sign} {abs(m_data['change_pct']):.2f}%</span>
-                        <span style="font-size: 12px; color: {vix_color}; background-color: #222; padding: 1px 5px; border-radius: 3px;">{vix_msg}</span>
-                    </div>
-                    """
-                else:
-                    vix_bottom_html = f"""
-                    <div style="margin-top: 4px;">
-                        <span style="font-size: 13px; font-weight: 800; color: {pct_color}; background-color: {pct_color}22; padding: 2px 7px; border-radius: 5px;">{arrow_sign} {abs(m_data['change_pct']):.2f}%</span>
-                    </div>
-                    """
-
-                # 52주 최고가 / 대비 하락률 (상단 지수 구역과 동일한 방식)
-                if m_data.get("high") is not None and m_data.get("drop") is not None:
-                    formatted_high = info["fmt"].format(m_data["high"])
-                    high_low_html = f"""
-                    <div style="line-height: 1.5; white-space: nowrap; font-family: sans-serif; margin-top: 6px; padding-top: 6px; border-top: 1px solid #222222;">
-                        <span style="font-size: 11px; color: #ff4d4d; font-weight: bold;">▲</span>
-                        <span style="font-size: 11px; color: #999999;">52주최고:</span>
-                        <span style="font-size: 13px; color: #ffffff; font-weight: 700;">{formatted_high}</span>
-                        <br>
-                        <span style="font-size: 11px; color: #4d94ff; font-weight: bold;">▼</span>
-                        <span style="font-size: 11px; color: #999999;">대비하락:</span>
-                        <span style="font-size: 13px; color: #4d94ff; font-weight: 700;">{m_data['drop']:.2f}%</span>
-                    </div>
-                    """
-                else:
-                    high_low_html = ""
-
-                st.markdown(
-                    f"""
-                    <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; min-height: 128px;">
-                        <div style="font-size: 12px; color: #cccccc; font-weight: bold; margin-bottom: 3px;">{info['name']}</div>
-                        <div style="font-size: 19px; font-weight: 800; color: #ffffff; white-space: nowrap;">{formatted_price}</div>
-                        {vix_bottom_html}
-                        {high_low_html}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f"""
-                    <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; text-align: center; min-height: 128px;">
-                        <span style="font-size: 11px; color: #666666; line-height: 100px;">⏳ 수신 대기중</span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-    # 미국채 2년물 + 10년물을 카드 하나로 통합 표시
     with macro_cols[3]:
         shy_data = get_index_data("SHY")
         tnx_data = get_index_data("^TNX")
@@ -754,17 +668,48 @@ def render_market_overview():
 
         st.markdown(
             f"""
-            <div style="background-color: #111111; padding: 10px; border-radius: 6px; border: 1px solid #222222; min-height: 128px;">
-                <div style="font-size: 12px; color: #cccccc; font-weight: bold; margin-bottom: 3px;">🇺🇸 국채금리</div>
-                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px;">
+            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box;">
+                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">🇺🇸 국채금리</div>
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:8px;">
                     <span style="font-size:11px;color:#999;">2년</span>
                     <span style="font-size:16px;font-weight:800;color:#fff;">{shy_data['current']:.2f}%</span>
                     <span style="font-size:11px;font-weight:700;color:{shy_color};">{shy_arrow}{abs(shy_data['change_pct']):.2f}%</span>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:6px; padding-top:6px; border-top:1px solid #222222;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; padding-top:10px; border-top:1px solid #222222;">
                     <span style="font-size:11px;color:#999;">10년</span>
                     <span style="font-size:16px;font-weight:800;color:#fff;">{tnx_data['current']:.3f}%</span>
                     <span style="font-size:11px;font-weight:700;color:{tnx_color};">{tnx_arrow}{abs(tnx_data['change_pct']):.2f}%</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with macro_cols[4]:
+        gold_data = get_index_data("GC=F")
+        st.markdown(index_card("🥇 골드 (금)", gold_data, unit="$"), unsafe_allow_html=True)
+
+    with macro_cols[5]:
+        fg_score, fg_status = get_cnn_fear_greed()
+
+        if "극단적 공포" in fg_status: theme_color = "#ff4d4d"
+        elif "공포" in fg_status: theme_color = "#ff944d"
+        elif "중립" in fg_status: theme_color = "#aaaaaa"
+        elif "극단적 탐욕" in fg_status: theme_color = "#00ffcc"
+        else: theme_color = "#4dff4d"
+
+        gauge_svg = make_gauge_svg(fg_score, width=130, height=58, r=42)
+
+        st.markdown(
+            f"""
+            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box; display:flex; flex-direction:column; overflow:hidden;">
+                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">📊 공포·탐욕지수</div>
+                <div style="flex:1 1 auto; min-height:0; min-width:0; display:flex; align-items:flex-end; justify-content:center; line-height:0;">
+                    {gauge_svg}
+                </div>
+                <div style="flex:0 0 auto; text-align:center; margin-top:4px;">
+                    <span style="font-size: 16px; font-weight: 900; color: {theme_color};">{fg_score}</span>
+                    <span style="font-size: 11px; font-weight: bold; color: {theme_color}; margin-left: 4px;">{fg_status}</span>
                 </div>
             </div>
             """,
