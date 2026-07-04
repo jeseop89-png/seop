@@ -586,37 +586,35 @@ def render_market_overview():
 
     def index_card(name, data, unit="", extra_html=""):
         """지수/ETF/원자재 공용 카드 (가격/등락/52주최고/신고대비). 높이를 150px로 고정해서
-        어디에 쓰든(지수든 매크로든) 카드 크기가 항상 똑같이 맞춰지도록 함."""
+        어디에 쓰든(지수든 매크로든) 카드 크기가 항상 똑같이 맞춰지도록 함.
+        주의: 반드시 들여쓰기 없는 한 줄 문자열로 조립해야 함 — 여러 줄+들여쓰기로 만들면
+        Streamlit 마크다운이 이를 "코드블록"으로 오인해서 HTML이 그대로 텍스트로 노출됨."""
         if not data:
-            return f"""
-            <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box; text-align:center; display:flex; flex-direction:column; justify-content:center;">
-                <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">{name}</div>
-                <span style="font-size: 12px; color:#666;">⏳ 연결중...</span>
-            </div>
-            """
+            return (
+                '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;text-align:center;display:flex;flex-direction:column;justify-content:center;">'
+                f'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">{name}</div>'
+                '<span style="font-size:12px;color:#666;">⏳ 연결중...</span>'
+                '</div>'
+            )
         pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
         arrow_sign = "▲" if data['change_pct'] >= 0 else "▼"
         high_drop_html = ""
         if data.get("high") is not None and data.get("drop") is not None:
-            high_drop_html = f"""
-            <div style="line-height:1.5; font-size:11px; color:#999;">
-                52주최고: <span style="color:#fff;font-weight:700;">{unit}{data['high']:,.2f}</span><br>
-                신고대비: <span style="color:#4d94ff;font-weight:700;">{data['drop']:.2f}%</span>
-            </div>
-            """
-        return f"""
-        <div style="background-color:#111111; border-radius:8px; padding:12px 16px; height:150px; box-sizing:border-box;">
-            <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px;">{name}</div>
-            <div style="margin-bottom: 4px;">
-                <span style="font-size: 19px; font-weight: 800; color:#ffffff;">{unit}{data['current']:,.2f}</span>
-            </div>
-            <div style="margin-bottom: 6px;">
-                <span style="font-size: 13px; font-weight: 800; color:{pct_color}; background-color:{pct_color}22; padding:2px 7px; border-radius:5px;">{arrow_sign} {abs(data['change_pct']):.2f}%</span>
-            </div>
-            {high_drop_html}
-            {extra_html}
-        </div>
-        """
+            high_drop_html = (
+                '<div style="line-height:1.5;font-size:11px;color:#999;">'
+                f'52주최고: <span style="color:#fff;font-weight:700;">{unit}{data["high"]:,.2f}</span><br>'
+                f'신고대비: <span style="color:#4d94ff;font-weight:700;">{data["drop"]:.2f}%</span>'
+                '</div>'
+            )
+        return (
+            '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;">'
+            f'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">{name}</div>'
+            f'<div style="margin-bottom:4px;"><span style="font-size:19px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.2f}</span></div>'
+            f'<div style="margin-bottom:6px;"><span style="font-size:13px;font-weight:800;color:{pct_color};background-color:{pct_color}22;padding:2px 7px;border-radius:5px;">{arrow_sign} {abs(data["change_pct"]):.2f}%</span></div>'
+            f'{high_drop_html}'
+            f'{extra_html}'
+            '</div>'
+        )
 
     for idx, (ticker, name) in enumerate(top_items.items()):
         with cols[idx]:
