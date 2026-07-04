@@ -51,6 +51,16 @@ st.markdown(
             font-size: 15px;
             padding: 6px 12px;
         }
+        /* 상단 지수/매크로 카드는 모바일에서 3개씩 촘촘하게 (기본 2개 그리드 규칙 덮어씀) */
+        div[class*="st-key-index_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+        div[class*="st-key-macro_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+            flex: 1 1 30% !important;
+            min-width: 30% !important;
+        }
+        div[class*="st-key-index_row"] div[data-testid="stHorizontalBlock"],
+        div[class*="st-key-macro_row"] div[data-testid="stHorizontalBlock"] {
+            gap: 6px !important;
+        }
         /* 포트폴리오 "테이블 보기"는 위 그리드 규칙에서 예외 처리해서
            PC와 완전히 똑같은 모양을 유지한 채, 옆으로 스크롤해서 보게 함 */
         div[class*="st-key-pc_table_"] div[data-testid="stHorizontalBlock"] {
@@ -570,7 +580,7 @@ def render_market_overview():
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
             _warm_pool.submit(get_index_data, "^GSPC"),
-            _warm_pool.submit(get_index_data, "QQQ"),
+            _warm_pool.submit(get_index_data, "^IXIC"),
             _warm_pool.submit(get_index_data, "^SOX"),
             _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
@@ -586,11 +596,12 @@ def render_market_overview():
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
     # 2. 상단 지수 구역 (6개: 지수 5 + 골드, 동일 크기)
-    cols = st.columns(6)
+    _idx_container = st.container(key="index_row")
+    cols = _idx_container.columns(6)
     top_items = {
         "KOSPI": "코스피 (실시간)",
         "^GSPC": "S&P 500",
-        "QQQ": "나스닥",
+        "^IXIC": "나스닥",
         "^SOX": "반도체지수(SOX)",
         "^N225": "니케이225",
         "GC=F": "🥇 골드 (금)"
@@ -603,8 +614,8 @@ def render_market_overview():
         Streamlit 마크다운이 이를 "코드블록"으로 오인해서 HTML이 그대로 텍스트로 노출됨."""
         if not data:
             return (
-                '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;text-align:center;display:flex;flex-direction:column;justify-content:center;">'
-                f'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">{name}</div>'
+                '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;text-align:center;display:flex;flex-direction:column;justify-content:center;">'
+                f'<div style="font-size:13px;font-weight:700;margin-bottom:6px;">{name}</div>'
                 '<span style="font-size:12px;color:#666;">⏳ 연결중...</span>'
                 '</div>'
             )
@@ -619,10 +630,10 @@ def render_market_overview():
                 '</div>'
             )
         return (
-            '<div style="background-color:#111111;border-radius:8px;padding:12px 16px;height:150px;box-sizing:border-box;">'
-            f'<div style="font-size:14px;font-weight:700;margin-bottom:6px;">{name}</div>'
-            f'<div style="margin-bottom:4px;"><span style="font-size:19px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.{decimals}f}{suffix}</span></div>'
-            f'<div style="margin-bottom:6px;"><span style="font-size:13px;font-weight:800;color:{pct_color};background-color:{pct_color}22;padding:2px 7px;border-radius:5px;">{arrow_sign} {abs(data["change_pct"]):.2f}%</span></div>'
+            '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;overflow:hidden;">'
+            f'<div style="font-size:13px;font-weight:700;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
+            f'<div style="margin-bottom:4px;"><span style="font-size:17px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.{decimals}f}{suffix}</span></div>'
+            f'<div style="margin-bottom:6px;"><span style="font-size:12px;font-weight:800;color:{pct_color};background-color:{pct_color}22;padding:2px 6px;border-radius:5px;">{arrow_sign} {abs(data["change_pct"]):.2f}%</span></div>'
             f'{high_drop_html}'
             f'{extra_html}'
             '</div>'
@@ -636,7 +647,8 @@ def render_market_overview():
 
     # 3. 하단 매크로 구역: 빅스/원달러환율/원유/국채2년/국채10년/공포탐욕 6개를 동일한 크기로
     st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    macro_cols = st.columns(6)
+    _macro_container = st.container(key="macro_row")
+    macro_cols = _macro_container.columns(6)
 
     with macro_cols[0]:
         vix_data = get_index_data("^VIX")
