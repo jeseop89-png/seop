@@ -1577,11 +1577,19 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
 
 
 def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
-    """모바일 화면용 보유종목 카드뷰. 14칸짜리 테이블을 옆으로 스크롤하는 대신,
-    종목당 카드 하나에 라벨:값을 세로로 쌓아서 한눈에 읽기 쉽게 보여줌."""
+    """모바일 화면용 보유종목 카드뷰. 종목당 2줄 정도로 압축해서, 통계들을
+    세로로 쭉 나열하는 대신 가로로 촘촘하게 배치해 스크롤 부담을 줄임."""
     if not rows:
         st.caption("아직 추가된 종목이 없습니다. 위의 '➕ 종목 추가' 버튼을 눌러보세요.")
         return
+
+    def chip(label, value, color="#dddddd"):
+        return (
+            '<span style="display:inline-block;margin-right:12px;margin-top:4px;white-space:nowrap;">'
+            f'<span style="color:#888;font-size:11px;">{label}</span> '
+            f'<span style="color:{color};font-weight:700;font-size:12px;">{value}</span>'
+            '</span>'
+        )
 
     for i, r in enumerate(rows):
         is_usd = not (r["ticker"].endswith(".KS") or r["ticker"].endswith(".KQ"))
@@ -1594,8 +1602,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
 
         avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd)
 
-        rows_html = f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">수량</span><span>{r["qty"]:,.0f}</span></div>'
-        rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평단가</span><span>{avg_txt}</span></div>'
+        line2 = chip("수량", f"{r['qty']:,.0f}") + chip("평단가", avg_txt)
 
         if r["eval_amount"] is not None:
             profit_amount = r["eval_amount"] - r["buy_amount"]
@@ -1605,18 +1612,9 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
 
             cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
+            buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
-            if is_usd and cur_fx:
-                profit_krw = (r['eval_amount'] * cur_fx) - (r['buy_amount'] * buy_fx)
-                profit_txt = f"{fmt_money(abs(profit_amount), is_usd)} <span style='font-size:0.85em;'>({abs(profit_krw):,.0f}원)</span>"
-            else:
-                profit_txt = fmt_money(abs(profit_amount), is_usd)
-
-            rsi_v = r["rsi"]
-            if rsi_v is not None:
-                rsi_txt = f"{rsi_v:.1f}" + (" (과매수)" if rsi_v >= 70 else " (과매도)" if rsi_v <= 30 else "")
-            else:
-                rsi_txt = "⏳"
+            profit_txt = f"{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)"
 
             diff_pct = current_weight - target_weight
             if abs(diff_pct) <= 2:
@@ -1626,22 +1624,28 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             else:
                 signal_color, signal_tag = "#ff4d4d", "부족"
 
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">현재가</span><span>{cur_txt}</span></div>'
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">RSI</span><span>{rsi_txt}</span></div>'
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평가금액</span><span>{eval_txt}</span></div>'
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">평가손익</span><span style="color:{color};font-weight:700;">{arrow} {profit_txt} ({abs(profit_pct):.1f}%)</span></div>'
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">비중</span><span>목표 {target_weight:.0f}% / 현재 {current_weight:.0f}%</span></div>'
-            rows_html += f'<div style="display:flex;justify-content:space-between;"><span style="color:#888;">신호</span><span style="color:{signal_color};font-weight:700;">{signal_tag} ({diff_pct:+.1f}%p)</span></div>'
+            line2 += chip("현재가", cur_txt)
+            line3 = (
+                chip("매수금", buy_amt_txt)
+                + chip("평가금", eval_txt)
+                + chip("손익", profit_txt, color=color)
+                + chip("비중", f"{current_weight:.0f}%/{target_weight:.0f}%")
+                + chip("신호", f"{signal_tag}({diff_pct:+.1f}%p)", color=signal_color)
+            )
         else:
-            rows_html += '<div style="display:flex;justify-content:space-between;"><span style="color:#888;">현재가</span><span>⏳</span></div>'
+            line2 += chip("현재가", "⏳")
+            line3 = ""
 
         card_cols = st.columns([5, 1])
         with card_cols[0]:
             st.markdown(
-                f'''<div style="background-color:#161616;border-radius:8px;padding:10px 14px;margin-bottom:8px;">
-                    <div style="font-size:14px;font-weight:800;color:#ffffff;margin-bottom:6px;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></div>
-                    <div style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:#dddddd;">{rows_html}</div>
-                </div>''',
+                (
+                    '<div style="background-color:#161616;border-radius:8px;padding:10px 14px;margin-bottom:8px;">'
+                    f'<div style="font-size:14px;font-weight:800;color:#ffffff;margin-bottom:2px;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></div>'
+                    f'<div style="line-height:1.6;">{line2}</div>'
+                    f'<div style="line-height:1.6;">{line3}</div>'
+                    '</div>'
+                ),
                 unsafe_allow_html=True
             )
         with card_cols[1]:
@@ -1702,7 +1706,7 @@ else:
                         profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
 
                     metrics_html = (
-                        '<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;">'
+                        '<div style="display:flex;gap:26px;flex-wrap:nowrap;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;">'
                         + metric("총 매수금액", buy_txt)
                         + metric("총 평가금액", eval_txt)
                         + metric("평가손익", profit_txt)
