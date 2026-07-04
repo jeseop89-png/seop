@@ -1577,11 +1577,20 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
 
 
 def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
-    """모바일 화면용 보유종목 카드뷰. 증권사 앱처럼 종목당 딱 2줄로:
-    1줄 = 종목명 ↔ 현재가/등락률, 2줄 = 수량·평단가 ↔ 평가금액/손익."""
+    """모바일 화면용 보유종목 카드뷰 (더리치 스타일).
+    상단: 종목명 ↔ 수량 / 왼쪽열: 평가금액·수익·비중 / 오른쪽열: 평단가·현재가·신호.
+    RSI만 제외하고 나머지 정보를 왼/오 2열로 나눠 보여줌."""
     if not rows:
         st.caption("아직 추가된 종목이 없습니다. 위의 '➕ 종목 추가' 버튼을 눌러보세요.")
         return
+
+    def kv(label, value_html):
+        return (
+            '<div style="margin-top:6px;line-height:1.3;">'
+            f'<div style="font-size:11px;color:#888;">{label}</div>'
+            f'<div style="font-size:14px;font-weight:700;">{value_html}</div>'
+            '</div>'
+        )
 
     for i, r in enumerate(rows):
         is_usd = not (r["ticker"].endswith(".KS") or r["ticker"].endswith(".KQ"))
@@ -1590,35 +1599,47 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
         if is_usd and not buy_fx:
             buy_fx = cur_fx
         display_name = get_display_name(r["ticker"], r["name"])
+        target_weight = r.get("target_weight", 0.0) or 0.0
 
-        avg_txt = fmt_money(r['avg_price'], is_usd)
+        avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd)
 
         if r["eval_amount"] is not None:
             profit_amount = r["eval_amount"] - r["buy_amount"]
             profit_pct = (profit_amount / r["buy_amount"]) * 100 if r["buy_amount"] > 0 else 0.0
             color = "#ff4d4d" if profit_pct >= 0 else "#4d94ff"
             arrow = "▲" if profit_pct >= 0 else "▼"
-            cur_txt = fmt_money(r['current_price'], is_usd)
-            eval_txt = fmt_money(r['eval_amount'], is_usd)
-            row1_right = f'<span style="font-size:14px;font-weight:800;color:#ffffff;">{cur_txt}</span>'
-            row2_right = f'<span style="font-size:13px;font-weight:700;color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
+            current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
+
+            cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
+            eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
+            profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
+
+            diff_pct = current_weight - target_weight
+            if abs(diff_pct) <= 2:
+                signal_color, signal_tag = "#aaaaaa", "적정"
+            elif diff_pct > 0:
+                signal_color, signal_tag = "#4d94ff", "초과"
+            else:
+                signal_color, signal_tag = "#ff4d4d", "부족"
+
+            left_col = kv("평가금액", eval_txt) + kv("수익", profit_val) + kv("비중", f'{current_weight:.0f}% <span style="color:#888;font-size:12px;">/ 목표 {target_weight:.0f}%</span>')
+            right_col = kv("평단가", avg_txt) + kv("현재가", cur_txt) + kv("신호", f'<span style="color:{signal_color};">{signal_tag} ({diff_pct:+.1f}%p)</span>')
         else:
-            eval_txt = "⏳"
-            row1_right = '<span style="font-size:13px;color:#666;">⏳</span>'
-            row2_right = ""
+            left_col = kv("평가금액", "⏳") + kv("평단가", avg_txt)
+            right_col = kv("현재가", "⏳") + kv("비중", f'목표 {target_weight:.0f}%')
 
         card_cols = st.columns([5, 1])
         with card_cols[0]:
             st.markdown(
                 (
-                    '<div style="background-color:#161616;border-radius:8px;padding:10px 14px;margin-bottom:8px;">'
-                    '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
-                    f'<span style="font-size:14px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
-                    f'{row1_right}'
+                    '<div style="background-color:#161616;border-radius:8px;padding:12px 16px;margin-bottom:8px;">'
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #262626;padding-bottom:6px;">'
+                    f'<span style="font-size:15px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
+                    f'<span style="font-size:12px;color:#999;">수량 <span style="color:#fff;font-weight:700;">{r["qty"]:,.0f}</span></span>'
                     '</div>'
-                    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px;">'
-                    f'<span style="font-size:12px;color:#999;">{r["qty"]:,.0f}주 · {avg_txt}</span>'
-                    f'{row2_right}'
+                    '<div style="display:flex;gap:16px;">'
+                    f'<div style="flex:1;min-width:0;">{left_col}</div>'
+                    f'<div style="flex:1;min-width:0;">{right_col}</div>'
                     '</div>'
                     '</div>'
                 ),
