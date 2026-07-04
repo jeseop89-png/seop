@@ -580,7 +580,7 @@ def render_market_overview():
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
             _warm_pool.submit(get_index_data, "^GSPC"),
-            _warm_pool.submit(get_index_data, "^IXIC"),
+            _warm_pool.submit(get_index_data, "QQQ"),
             _warm_pool.submit(get_index_data, "^SOX"),
             _warm_pool.submit(get_index_data, "^N225"),
             _warm_pool.submit(get_index_data, "^VIX"),
@@ -601,7 +601,7 @@ def render_market_overview():
     top_items = {
         "KOSPI": "코스피 (실시간)",
         "^GSPC": "S&P 500",
-        "^IXIC": "나스닥",
+        "QQQ": "나스닥(QQQ)",
         "^SOX": "반도체지수(SOX)",
         "^N225": "니케이225",
         "GC=F": "🥇 골드 (금)"
@@ -1464,7 +1464,7 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
     col_widths = [1.2, 0.5, 1.3, 1.3, 0.6, 1.4, 1.4, 1.4, 0.7, 0.7, 0.7, 1.0, 1.3, 0.4]
     header_cols = st.columns(col_widths)
     header_labels = ["종목", "수량", "평단가", "현재가", "RSI", "매수금액", "평가금액", "평가손익", "수익률",
-                      "목표비중", "현재비중", "신호", "부족한금액", "수정"]
+                      "목표비중", "현재비중", "신호", "조정(매수/판매)", "수정"]
     for c, label in zip(header_cols, header_labels):
         c.markdown(f"<span style='font-size:11px;color:#aaaaaa;font-weight:bold;'>{label}</span>", unsafe_allow_html=True)
 
@@ -1574,10 +1574,10 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             )
 
             if shortfall > 0:
-                shortfall_txt = f"+{fmt_money(shortfall, is_usd)}" + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                shortfall_txt = f"🛒매수 {fmt_money(shortfall, is_usd)}" + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
                 row_cols[12].markdown(nowrap(f"<span style='color:#ff4d4d;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
             elif shortfall < 0:
-                shortfall_txt = fmt_money(shortfall, is_usd) + (f" ({shortfall * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
+                shortfall_txt = f"💰판매 {fmt_money(abs(shortfall), is_usd)}" + (f" ({abs(shortfall) * cur_fx:,.0f}원)" if (is_usd and cur_fx) else "")
                 row_cols[12].markdown(nowrap(f"<span style='color:#4d94ff;'>{shortfall_txt}</span>"), unsafe_allow_html=True)
             else:
                 row_cols[12].write("-")
@@ -1645,18 +1645,23 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             else:
                 signal_color, signal_tag = "#ff4d4d", "부족"
 
-            # 부족한금액 = 목표비중까지 채우려면 더 사야 하는 금액
+            # 목표비중 대비 조정 필요 금액: 부족하면 매수, 초과하면 판매
             target_amount = (target_weight / 100) * total_eval_amount
             shortfall = target_amount - r["eval_amount"]
             if shortfall > 0:
-                short_val = f'<span style="color:#ff4d4d;">+{fmt_money(shortfall, is_usd)}</span>'
+                # 목표보다 적게 담김 -> 더 사야 함
+                adjust_val = f'<span style="color:#ff4d4d;">🛒 매수 {fmt_money(shortfall, is_usd)}</span>'
+                adjust_label = "부족 (매수 필요)"
             elif shortfall < 0:
-                short_val = f'<span style="color:#4d94ff;">{fmt_money(shortfall, is_usd)}</span>'
+                # 목표보다 많이 담김 -> 팔아야 함
+                adjust_val = f'<span style="color:#4d94ff;">💰 판매 {fmt_money(abs(shortfall), is_usd)}</span>'
+                adjust_label = "초과 (판매 필요)"
             else:
-                short_val = "-"
+                adjust_val = "-"
+                adjust_label = "조정금액"
 
             left_col = kv("매수금액", buy_amt_txt) + kv("평가금액", eval_txt) + kv("수익", profit_val) + kv("비중", f'{current_weight:.0f}% <span style="color:#888;font-size:12px;">/ 목표 {target_weight:.0f}%</span>')
-            right_col = kv("평단가", avg_txt) + kv("현재가", cur_txt) + kv("신호", f'<span style="color:{signal_color};">{signal_tag} ({diff_pct:+.1f}%p)</span>') + kv("부족한금액", short_val)
+            right_col = kv("평단가", avg_txt) + kv("현재가", cur_txt) + kv("신호", f'<span style="color:{signal_color};">{signal_tag} ({diff_pct:+.1f}%p)</span>') + kv(adjust_label, adjust_val)
         else:
             left_col = kv("평가금액", "⏳") + kv("평단가", avg_txt)
             right_col = kv("현재가", "⏳") + kv("비중", f'목표 {target_weight:.0f}%')
