@@ -51,6 +51,18 @@ st.markdown(
             font-size: 15px;
             padding: 6px 12px;
         }
+        /* 포트폴리오 "테이블 보기"는 위 그리드 규칙에서 예외 처리해서
+           PC와 완전히 똑같은 모양을 유지한 채, 옆으로 스크롤해서 보게 함 */
+        div[class*="st-key-pc_table_"] div[data-testid="stHorizontalBlock"] {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+        }
+        div[class*="st-key-pc_table_"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
+            flex: 0 0 auto !important;
+            min-width: 90px !important;
+            width: auto !important;
+        }
     }
     </style>
     """,
@@ -1718,4 +1730,5 @@ else:
             if is_mobile_view:
                 render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
             else:
-                render_portfolio_table(p_name, rows, total_eval_amount)
+                with st.container(key=f"pc_table_{p_idx}"):
+                    render_portfolio_table(p_name, rows, total_eval_amount)
