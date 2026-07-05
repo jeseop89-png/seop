@@ -679,14 +679,14 @@ def render_market_overview():
             _warm_pool.submit(get_index_data, "VOO"),
             _warm_pool.submit(get_index_data, "QQQ"),
             _warm_pool.submit(get_index_data, "SOXX"),
-            _warm_pool.submit(get_index_data, "EWJ"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
             _warm_pool.submit(get_index_data, "USDKRW=X"),
-            _warm_pool.submit(get_index_data, "CL=F"),
-            _warm_pool.submit(get_index_data, "GC=F"),
             _warm_pool.submit(get_cnn_fear_greed),
+            _warm_pool.submit(get_recent_closes, "VOO"),
+            _warm_pool.submit(get_recent_closes, "QQQ"),
+            _warm_pool.submit(get_recent_closes, "SOXX"),
         ]
         # 최대 8초까지만 기다리고, 그 안에 안 끝난 요청은 그냥 넘어감
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
@@ -695,7 +695,7 @@ def render_market_overview():
     # 2. 지수 티커 바 2줄 (접기 없이 항상 표시)
     #    1줄: 코스피·S&P500·나스닥·반도체·골드
     #    2줄: 원유·빅스·환율·국채(2년/10년)·공포탐욕
-    def ticker_cell(name, data, unit="", suffix="", decimals=2, extra=""):
+    def ticker_cell(name, data, unit="", suffix="", decimals=2, extra="", rsi=None):
         if not data:
             return (
                 '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
@@ -705,12 +705,19 @@ def render_market_overview():
             )
         pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
         arrow = "▲" if data['change_pct'] >= 0 else "▼"
+        rsi_html = ""
+        if rsi is not None:
+            # RSI 색상: 70이상 과매수(빨강), 30이하 과매도(파랑), 중간은 회색
+            if rsi >= 70: rsi_color = "#ff4d4d"
+            elif rsi <= 30: rsi_color = "#4d94ff"
+            else: rsi_color = "#999"
+            rsi_html = f'<div style="font-size:10px;color:#888;margin-top:1px;white-space:nowrap;">RSI <span style="color:{rsi_color};font-weight:700;">{rsi:.0f}</span></div>'
         return (
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
             f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
             f'<div style="font-size:11px;font-weight:700;color:{pct_color};white-space:nowrap;">{arrow} {abs(data["change_pct"]):.2f}%</div>'
-            f'{extra}'
+            f'{rsi_html}{extra}'
             '</div>'
         )
 
@@ -719,8 +726,6 @@ def render_market_overview():
     sp500 = get_index_data("VOO")
     nasdaq = get_index_data("QQQ")
     sox = get_index_data("SOXX")
-    gold = get_index_data("GC=F")
-    oil = get_index_data("CL=F")
     vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
     krw = get_index_data("USDKRW=X")
     shy_data = get_index_data("SHY") or {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
@@ -728,6 +733,11 @@ def render_market_overview():
     tnx_data = get_index_data("^TNX") or {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
     if tnx_data['current'] > 15: tnx_data['current'] = tnx_data['current'] / 10
     fg_score, fg_status = get_cnn_fear_greed()
+
+    # RSI 계산 (지수 ETF만)
+    rsi_sp500 = get_rsi("VOO", sp500["current"] if sp500 else None)
+    rsi_nasdaq = get_rsi("QQQ", nasdaq["current"] if nasdaq else None)
+    rsi_sox = get_rsi("SOXX", sox["current"] if sox else None)
 
     # 빅스 상태 태그
     vix_v = vix_data['current']
@@ -759,22 +769,20 @@ def render_market_overview():
         '</div>'
     )
 
-    # 1줄: 코스피 · S&P500 · 나스닥 · 반도체 · 골드
+    # 1줄: 코스피 · S&P500 · 나스닥 · 반도체 (RSI 포함)
     row1 = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
         + ticker_cell("코스피", kospi, unit="", decimals=2)
-        + ticker_cell("S&P500·VOO", sp500, unit="$", decimals=2)
-        + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2)
-        + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2)
-        + ticker_cell("🥇 골드", gold, unit="$", decimals=2)
+        + ticker_cell("S&P500·VOO", sp500, unit="$", decimals=2, rsi=rsi_sp500)
+        + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2, rsi=rsi_nasdaq)
+        + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2, rsi=rsi_sox)
         + '</div>'
     )
     st.markdown(row1, unsafe_allow_html=True)
 
-    # 2줄: 원유 · 빅스 · 환율 · 국채(2/10년) · 공포탐욕
+    # 2줄: 빅스 · 환율 · 국채(2/10년) · 공포탐욕
     row2 = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-        + ticker_cell("🛢️ 원유", oil, unit="$", decimals=2)
         + ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra)
         + ticker_cell("환율", krw, unit="₩", decimals=1)
         + bond_cell
