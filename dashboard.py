@@ -51,13 +51,11 @@ st.markdown(
             font-size: 15px;
             padding: 6px 12px;
         }
-        /* 상단 지수/매크로 카드는 모바일에서 3개씩 촘촘하게 (기본 2개 그리드 규칙 덮어씀) */
-        div[class*="st-key-index_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"],
+        /* 매크로 더보기 안의 지표 카드는 모바일에서도 3개씩 유지 */
         div[class*="st-key-macro_row"] div[data-testid="stHorizontalBlock"] > div[data-testid="stColumn"] {
             flex: 1 1 30% !important;
             min-width: 30% !important;
         }
-        div[class*="st-key-index_row"] div[data-testid="stHorizontalBlock"],
         div[class*="st-key-macro_row"] div[data-testid="stHorizontalBlock"] {
             gap: 6px !important;
         }
@@ -611,122 +609,107 @@ def render_market_overview():
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 상단 지수 구역 (6개: 지수 5 + 골드, 동일 크기)
-    _idx_container = st.container(key="index_row")
-    cols = _idx_container.columns(6)
-    top_items = {
-        "KOSPI": "코스피 (실시간)",
-        "^GSPC": "S&P 500",
-        "^IXIC": "나스닥",
-        "^SOX": "반도체지수(SOX)",
-        "^N225": "니케이225",
-        "GC=F": "🥇 골드 (금)"
-    }
-
-    def index_card(name, data, unit="", suffix="", decimals=2, extra_html=""):
-        """지수/ETF/원자재/금리 공용 카드 (가격/등락/52주최고/신고대비). 높이를 150px로 고정해서
-        어디에 쓰든 카드 크기가 항상 똑같이 맞춰지도록 함.
-        주의: 반드시 들여쓰기 없는 한 줄 문자열로 조립해야 함 — 여러 줄+들여쓰기로 만들면
-        Streamlit 마크다운이 이를 "코드블록"으로 오인해서 HTML이 그대로 텍스트로 노출됨."""
+    # 2. 핵심 지수 티커 바 (코스피/나스닥/반도체/환율 + 공포탐욕)
+    #    카드 대신 얇은 한 줄 바로 표시해서 공간을 적게 쓰고 로딩도 가볍게 함.
+    def ticker_cell(name, data, unit="", suffix="", decimals=2):
         if not data:
             return (
-                '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;text-align:center;display:flex;flex-direction:column;justify-content:center;">'
-                f'<div style="font-size:13px;font-weight:700;margin-bottom:6px;">{name}</div>'
-                '<span style="font-size:12px;color:#666;">⏳ 연결중...</span>'
+                '<div style="flex:1 1 0;min-width:0;padding:8px 10px;border-right:1px solid #222;text-align:center;">'
+                f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
+                '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div>'
                 '</div>'
             )
         pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
-        arrow_sign = "▲" if data['change_pct'] >= 0 else "▼"
-        high_drop_html = ""
-        if data.get("high") is not None and data.get("drop") is not None:
-            high_drop_html = (
-                '<div style="line-height:1.5;font-size:11px;color:#999;">'
-                f'52주최고: <span style="color:#fff;font-weight:700;">{unit}{data["high"]:,.{decimals}f}{suffix}</span><br>'
-                f'신고대비: <span style="color:#4d94ff;font-weight:700;">{data["drop"]:.2f}%</span>'
-                '</div>'
-            )
+        arrow = "▲" if data['change_pct'] >= 0 else "▼"
         return (
-            '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;overflow:hidden;">'
-            f'<div style="font-size:13px;font-weight:700;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
-            f'<div style="margin-bottom:4px;"><span style="font-size:17px;font-weight:800;color:#ffffff;">{unit}{data["current"]:,.{decimals}f}{suffix}</span></div>'
-            f'<div style="margin-bottom:6px;"><span style="font-size:12px;font-weight:800;color:{pct_color};background-color:{pct_color}22;padding:2px 6px;border-radius:5px;">{arrow_sign} {abs(data["change_pct"]):.2f}%</span></div>'
-            f'{high_drop_html}'
-            f'{extra_html}'
+            '<div style="flex:1 1 0;min-width:0;padding:8px 10px;border-right:1px solid #222;text-align:center;">'
+            f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
+            f'<div style="font-size:11px;font-weight:700;color:{pct_color};white-space:nowrap;">{arrow} {abs(data["change_pct"]):.2f}%</div>'
             '</div>'
         )
 
-    for idx, (ticker, name) in enumerate(top_items.items()):
-        with cols[idx]:
-            data = get_korean_index_final(ticker) if ticker == "KOSPI" else get_index_data(ticker)
-            unit = "$" if ticker != "KOSPI" else ""
-            st.markdown(index_card(name, data, unit), unsafe_allow_html=True)
+    kospi = get_korean_index_final("KOSPI")
+    nasdaq = get_index_data("^IXIC")
+    sox = get_index_data("^SOX")
+    krw = get_index_data("USDKRW=X")
+    fg_score, fg_status = get_cnn_fear_greed()
 
-    # 3. 하단 매크로 구역: 빅스/원달러환율/원유/국채2년/국채10년/공포탐욕 6개를 동일한 크기로
-    st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
-    _macro_container = st.container(key="macro_row")
-    macro_cols = _macro_container.columns(6)
+    en_map = {"극단적 공포": "Extreme Fear", "공포": "Fear", "중립": "Neutral", "탐욕": "Greed", "극단적 탐욕": "Extreme Greed"}
+    en_label = en_map.get(fg_status, fg_status)
+    fg_cell = (
+        '<div style="flex:1 1 0;min-width:0;padding:8px 10px;text-align:center;">'
+        '<div style="font-size:11px;color:#aaa;white-space:nowrap;">공포·탐욕</div>'
+        f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;">{fg_score}</div>'
+        f'<div style="font-size:10px;font-weight:700;color:#ccc;white-space:nowrap;">{en_label}</div>'
+        '</div>'
+    )
 
-    with macro_cols[0]:
-        vix_data = get_index_data("^VIX")
-        if not vix_data:
-            vix_data = {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
-        vix_v = vix_data['current']
-        if vix_v < 15: vix_msg, vix_color = "🟢안정", "#4dff4d"
-        elif vix_v < 20: vix_msg, vix_color = "🟡유의", "#ffff4d"
-        elif vix_v < 30: vix_msg, vix_color = "🟠경계", "#ff944d"
-        else: vix_msg, vix_color = "🔴위험", "#ff4d4d"
-        vix_extra = f'<div style="margin-top:4px;"><span style="font-size:11px;color:{vix_color};background-color:#222;padding:1px 6px;border-radius:3px;">{vix_msg}</span></div>'
-        st.markdown(index_card("빅스 지수", vix_data, unit="", extra_html=vix_extra), unsafe_allow_html=True)
+    ticker_bar = (
+        '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
+        + ticker_cell("코스피", kospi, unit="", decimals=2)
+        + ticker_cell("나스닥", nasdaq, unit="$", decimals=2)
+        + ticker_cell("반도체", sox, unit="$", decimals=2)
+        + ticker_cell("환율", krw, unit="₩", decimals=1)
+        + fg_cell
+        + '</div>'
+    )
+    st.markdown(ticker_bar, unsafe_allow_html=True)
 
-    with macro_cols[1]:
-        krw_data = get_index_data("USDKRW=X")
-        st.markdown(index_card("💵 원/달러 환율", krw_data, unit="₩"), unsafe_allow_html=True)
-
-    with macro_cols[2]:
-        oil_data = get_index_data("CL=F")
-        st.markdown(index_card("🛢️ 원유 (WTI)", oil_data, unit="$"), unsafe_allow_html=True)
-
-    with macro_cols[3]:
-        shy_data = get_index_data("SHY")
-        if not shy_data:
-            shy_data = {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
-        elif shy_data['current'] > 15:
-            shy_data['current'] = 4.12
-        st.markdown(index_card("🇺🇸 국채 2년물", shy_data, unit="", suffix="%"), unsafe_allow_html=True)
-
-    with macro_cols[4]:
-        tnx_data = get_index_data("^TNX")
-        if not tnx_data:
-            tnx_data = {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
-        elif tnx_data['current'] > 15:
-            tnx_data['current'] = tnx_data['current'] / 10
-        st.markdown(index_card("🇺🇸 국채 10년물", tnx_data, unit="", suffix="%", decimals=3), unsafe_allow_html=True)
-
-    with macro_cols[5]:
-        fg_score, fg_status = get_cnn_fear_greed()
-
-        # CNN처럼 영문 상태 라벨 매핑 (색상 없이 텍스트만)
-        en_map = {
-            "극단적 공포": "Extreme Fear",
-            "공포": "Fear",
-            "중립": "Neutral",
-            "탐욕": "Greed",
-            "극단적 탐욕": "Extreme Greed",
-        }
-        en_label = en_map.get(fg_status, fg_status)
-
-        gauge_svg = make_gauge_svg(fg_score, width=130, height=64, r=46)
-
-        st.markdown(
-            (
-                '<div style="background-color:#111111;border-radius:8px;padding:10px 12px;height:150px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;">'
-                '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">공포·탐욕지수</div>'
-                f'<div style="flex:1 1 auto;min-height:0;min-width:0;display:flex;align-items:flex-end;justify-content:center;line-height:0;">{gauge_svg}</div>'
-                f'<div style="flex:0 0 auto;text-align:center;margin-top:4px;"><span style="font-size:13px;font-weight:700;color:#ffffff;">{en_label}</span> <span style="font-size:11px;color:#888;">({fg_status})</span></div>'
+    # 3. 나머지 매크로 지표는 접이식으로 (기본은 접혀 있어 화면 깔끔 + 로딩 부담 ↓)
+    with st.expander("📊 매크로 더보기 (S&P500 · 골드 · 원유 · 국채 · 니케이 · 빅스)"):
+        def mini_cell(name, data, unit="", suffix="", decimals=2, extra=""):
+            if not data:
+                return (
+                    '<div style="background:#111;border-radius:6px;padding:8px 10px;text-align:center;">'
+                    f'<div style="font-size:11px;color:#aaa;">{name}</div>'
+                    '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div>'
+                    '</div>'
+                )
+            pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
+            arrow = "▲" if data['change_pct'] >= 0 else "▼"
+            drop_html = ""
+            if data.get("high") is not None and data.get("drop") is not None:
+                drop_html = f'<div style="font-size:10px;color:#888;margin-top:2px;">신고대비 <span style="color:#4d94ff;">{data["drop"]:.1f}%</span></div>'
+            return (
+                '<div style="background:#111;border-radius:6px;padding:8px 10px;">'
+                f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
+                f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
+                f'<div style="font-size:11px;font-weight:700;color:{pct_color};">{arrow} {abs(data["change_pct"]):.2f}%</div>'
+                f'{drop_html}{extra}'
                 '</div>'
-            ),
-            unsafe_allow_html=True
-        )
+            )
+
+        sp500 = get_index_data("^GSPC")
+        nikkei = get_index_data("^N225")
+        gold = get_index_data("GC=F")
+        oil = get_index_data("CL=F")
+        vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
+        shy_data = get_index_data("SHY") or {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
+        if shy_data['current'] > 15: shy_data['current'] = 4.12
+        tnx_data = get_index_data("^TNX") or {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
+        if tnx_data['current'] > 15: tnx_data['current'] = tnx_data['current'] / 10
+
+        vix_v = vix_data['current']
+        if vix_v < 15: vix_msg, vix_color = "안정", "#4dff4d"
+        elif vix_v < 20: vix_msg, vix_color = "유의", "#ffff4d"
+        elif vix_v < 30: vix_msg, vix_color = "경계", "#ff944d"
+        else: vix_msg, vix_color = "위험", "#ff4d4d"
+        vix_extra = f'<div style="margin-top:2px;"><span style="font-size:10px;color:{vix_color};">{vix_msg}</span></div>'
+
+        _mc = _macro_wrap = st.container(key="macro_row")
+        m1 = _mc.columns(3)
+        with m1[0]: st.markdown(mini_cell("S&P 500", sp500, unit="$"), unsafe_allow_html=True)
+        with m1[1]: st.markdown(mini_cell("니케이225", nikkei, unit="$"), unsafe_allow_html=True)
+        with m1[2]: st.markdown(mini_cell("🥇 골드", gold, unit="$"), unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+        m2 = st.columns(3)
+        with m2[0]: st.markdown(mini_cell("🛢️ 원유 WTI", oil, unit="$"), unsafe_allow_html=True)
+        with m2[1]: st.markdown(mini_cell("빅스 VIX", vix_data, unit="", extra=vix_extra), unsafe_allow_html=True)
+        with m2[2]: st.markdown(mini_cell("국채 10년", tnx_data, unit="", suffix="%", decimals=3), unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
+        m3 = st.columns(3)
+        with m3[0]: st.markdown(mini_cell("국채 2년", shy_data, unit="", suffix="%"), unsafe_allow_html=True)
 
 
 render_market_overview()
@@ -839,9 +822,9 @@ def fmt_krw(value):
 
 
 def combine_currency(usd_html, krw_txt):
-    """주(달러) 값은 그대로, 원화 환산값은 옅은 회색 괄호로 작게 붙여줌.
-    예: '95$ (1,500원)' — '/' 구분보다 원-달러 관계가 한눈에 들어옴"""
-    return f'{usd_html} <span style="color:#d0d0d0;font-size:0.82em;">({krw_txt})</span>'
+    """주(달러) 값은 그대로, 원화 환산값은 옅은 회색 괄호로 붙여줌.
+    예: '95$ (1,500원)' — 원화도 잘 보이도록 달러와 비슷한 크기로 표시"""
+    return f'{usd_html} <span style="color:#c8c8c8;font-size:0.95em;">({krw_txt})</span>'
 
 
 @st.cache_data(ttl=3600)
@@ -1162,7 +1145,7 @@ def add_stock_dialog(portfolio_name):
 
     st.divider()
     qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.4f")
-    avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.01, format="%.2f")
+    avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.0001, format="%.4f")
     target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
 
     is_usd = bool(selected_symbol) and not (selected_symbol.endswith(".KS") or selected_symbol.endswith(".KQ"))
@@ -1208,7 +1191,7 @@ def edit_stock_dialog(portfolio_name, index):
     is_usd = not (holding["ticker"].endswith(".KS") or holding["ticker"].endswith(".KQ"))
 
     new_qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.4f", value=float(holding["qty"]))
-    new_avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.01, format="%.2f", value=float(holding["avg_price"]))
+    new_avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.0001, format="%.4f", value=float(holding["avg_price"]))
     new_target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", value=float(holding.get("target_weight", 0.0) or 0.0))
 
     new_buy_fx_rate = holding.get("buy_fx_rate", 0.0) or 0.0
@@ -1568,7 +1551,7 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             if is_usd and cur_fx:
                 profit_krw = (r['eval_amount'] * cur_fx) - (r['buy_amount'] * buy_fx)
                 row_cols[7].markdown(
-                    nowrap(f"<span style='color:{color};font-weight:bold;'>{arrow} {fmt_money(abs(profit_amount), is_usd)} <span style='font-size:0.82em;'>({abs(profit_krw):,.0f}원)</span></span>"),
+                    nowrap(f"<span style='color:{color};font-weight:bold;'>{arrow} {fmt_money(abs(profit_amount), is_usd)} <span style='font-size:0.9em;'>({abs(profit_krw):,.0f}원)</span></span>"),
                     unsafe_allow_html=True
                 )
             else:
@@ -1814,7 +1797,7 @@ else:
                 eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
                 profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
                 if has_fx:
-                    profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
+                    profit_txt += f' <span style="color:{color};font-size:0.9em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
 
                 metrics_html = (
                     '<div style="display:flex;gap:18px 26px;flex-wrap:wrap;align-items:flex-start;">'
