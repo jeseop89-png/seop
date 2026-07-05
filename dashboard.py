@@ -554,14 +554,29 @@ def make_gauge_svg(score, width=140, height=76, r=58, label=""):
         arc_pts.append(f"{x:.1f},{y:.1f}")
     arc_svg = f'<polyline points="{" ".join(arc_pts)}" fill="none" stroke="#555555" stroke-width="7" stroke-linecap="round" />'
 
+    # 눈금 (0, 25, 50, 75, 100) + 숫자 라벨
+    ticks_svg = ""
+    for val in (0, 25, 50, 75, 100):
+        t = 180 - (val / 100) * 180
+        rad = math.radians(t)
+        x_out = cx + (r + 4) * math.cos(rad)
+        y_out = cy - (r + 4) * math.sin(rad)
+        x_in = cx + (r - 5) * math.cos(rad)
+        y_in = cy - (r - 5) * math.sin(rad)
+        ticks_svg += f'<line x1="{x_in:.1f}" y1="{y_in:.1f}" x2="{x_out:.1f}" y2="{y_out:.1f}" stroke="#888888" stroke-width="1.5" />'
+        x_lbl = cx + (r + 12) * math.cos(rad)
+        y_lbl = cy - (r + 12) * math.sin(rad)
+        ticks_svg += f'<text x="{x_lbl:.1f}" y="{y_lbl + 3:.1f}" text-anchor="middle" font-size="8" fill="#888888">{val}</text>'
+
     needle_theta = 180 - (score / 100) * 180
     rad = math.radians(needle_theta)
     needle_len = r - 10
     nx = cx + needle_len * math.cos(rad)
     ny = cy - needle_len * math.sin(rad)
 
-    return f"""<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" preserveAspectRatio="xMidYMax meet" style="display:block; max-width:100%;">
+    return f"""<svg width="100%" height="{height}" viewBox="-14 0 {width + 28} {height}" preserveAspectRatio="xMidYMax meet" style="display:block; max-width:100%;">
         {arc_svg}
+        {ticks_svg}
         <line x1="{cx}" y1="{cy}" x2="{nx:.1f}" y2="{ny:.1f}" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
         <circle cx="{cx}" cy="{cy}" r="4" fill="#ffffff"/>
         <text x="{cx}" y="{cy - 14}" text-anchor="middle" font-size="20" font-weight="800" fill="#ffffff">{score}</text>
@@ -1150,7 +1165,7 @@ def add_stock_dialog(portfolio_name):
     if is_usd:
         cur_fx = get_usd_krw_rate() or 1350.0
         buy_fx_rate = st.number_input(
-            "매수 시 환율 (원/달러)", min_value=0.0, step=1.0, format="%.0f", value=round(cur_fx),
+            "매수 시 환율 (원/달러)", min_value=0.0, step=1.0, format="%.0f", value=float(round(cur_fx)),
             help="나중에 환차익을 따로 보고 싶으면 매수 당시 환율을 입력해두세요. 모르면 현재 환율 그대로 두면 돼요."
         )
 
