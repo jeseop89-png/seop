@@ -247,6 +247,21 @@ FINNHUB_SYMBOLS = {
 }
 
 
+def get_yf_live_price(ticker):
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        for key in ("last_price", "lastPrice", "regular_market_price", "regularMarketPrice"):
+            try:
+                val = fi[key]
+                if val:
+                    return float(val)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=60)
 def get_finnhub_quote(ticker):
     """Finnhub 정식 API로 실시간 시세 조회. 야후(yfinance)와 달리 IP 차단이 없어
@@ -669,6 +684,44 @@ def make_gauge_svg(score, width=140, height=76, r=58, label=""):
 #   -> 10초마다 이 영역만 새로고침되고, 아래 포트폴리오는 영향 안받음
 # ==========================================
 @st.fragment(run_every=60)
+# ==========================================
+@st.cache_data(ttl=60)
+def get_recent_closes(ticker):
+    try:
+        # Wilder 스무딩이 안정적으로 수렴하려면 넉넉한 기간이 필요
+        df = yf.Ticker(ticker).history(period="6mo")
+        if not df.empty:
+            return df['Close'].tolist()
+    except Exception:
+        pass
+    return []
+
+
+def calculate_rsi(closes, period=14):
+    # Wilder's Smoothing 방식 (HTS/MTS/TradingView 등 대부분의 플랫폼과 동일한 계산법)
+    if len(closes) < period + 1:
+        return None
+    s = pd.Series(closes)
+    delta = s.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    value = rsi.iloc[-1]
+    return None if pd.isna(value) else float(value)
+
+
+def get_rsi(ticker, current_price=None, period=14):
+    closes = get_recent_closes(ticker)
+    if not closes:
+        return None
+    if current_price is not None:
+        closes = closes[:-1] + [current_price]  # 마지막 종가를 실시간가로 대체
+    return calculate_rsi(closes, period=period)
+
+
 def render_market_overview():
     # ⚡ 아래에서 순서대로 하나씩 불러오면 20개 가까운 외부 요청이 직렬로 쌓여서
     # 느려지므로, 먼저 전부 동시에(병렬로) 미리 가져와 캐시를 채워둠.
@@ -1046,19 +1099,6 @@ def get_usd_krw_rate():
 
 
 # 해외 종목 실시간에 더 가까운 시세 조회 (fast_info 우선, 실패 시 history()로 폴백)
-def get_yf_live_price(ticker):
-    try:
-        fi = yf.Ticker(ticker).fast_info
-        for key in ("last_price", "lastPrice", "regular_market_price", "regularMarketPrice"):
-            try:
-                val = fi[key]
-                if val:
-                    return float(val)
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
 
 
 # ==========================================
@@ -1147,42 +1187,6 @@ def get_current_price(ticker):
 # 📈 RSI(14일) 계산
 #   -> 최근 종가에 실시간가를 반영해서 최대한 실시간에
 #      가깝게 계산 (단순 이동평균 기반 RSI)
-# ==========================================
-@st.cache_data(ttl=60)
-def get_recent_closes(ticker):
-    try:
-        # Wilder 스무딩이 안정적으로 수렴하려면 넉넉한 기간이 필요
-        df = yf.Ticker(ticker).history(period="6mo")
-        if not df.empty:
-            return df['Close'].tolist()
-    except Exception:
-        pass
-    return []
-
-
-def calculate_rsi(closes, period=14):
-    # Wilder's Smoothing 방식 (HTS/MTS/TradingView 등 대부분의 플랫폼과 동일한 계산법)
-    if len(closes) < period + 1:
-        return None
-    s = pd.Series(closes)
-    delta = s.diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    value = rsi.iloc[-1]
-    return None if pd.isna(value) else float(value)
-
-
-def get_rsi(ticker, current_price=None, period=14):
-    closes = get_recent_closes(ticker)
-    if not closes:
-        return None
-    if current_price is not None:
-        closes = closes[:-1] + [current_price]  # 마지막 종가를 실시간가로 대체
-    return calculate_rsi(closes, period=period)
 
 
 @st.dialog("새 포트폴리오 만들기")
