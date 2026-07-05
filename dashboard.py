@@ -821,10 +821,16 @@ def get_display_name(ticker, fallback_name):
     return US_STOCK_KOREAN_NAMES.get(ticker.upper(), fallback_name)
 
 
-def fmt_money(value, is_usd):
+def fmt_money(value, is_usd, decimals=None):
     """달러는 '95$', 원화는 '1,234원' 형식으로 통일해서 반환.
+    decimals를 지정하면 그 자릿수로 표시 (평단가/현재가처럼 소수점이 중요한 값에 사용).
+    지정 안 하면 달러/원화 모두 정수로 표시 (총액처럼 큰 금액에 사용).
     &#36;은 Streamlit markdown이 '$'를 LaTeX 수식 기호로 잘못 해석하는 걸 막기 위한 HTML 엔티티."""
-    return f"{value:,.0f}&#36;" if is_usd else f"{value:,.0f}원"
+    if decimals is None:
+        decimals = 0
+    if is_usd:
+        return f"{value:,.{decimals}f}&#36;"
+    return f"{value:,.{decimals}f}원"
 
 
 def fmt_krw(value):
@@ -1513,9 +1519,9 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             return f'<div style="white-space:nowrap;">{txt}</div>'
 
         if is_usd and cur_fx:
-            row_cols[2].markdown(nowrap(combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원")), unsafe_allow_html=True)
+            row_cols[2].markdown(nowrap(combine_currency(fmt_money(r['avg_price'], is_usd, decimals=2), f"{r['avg_price'] * buy_fx:,.0f}원")), unsafe_allow_html=True)
         else:
-            row_cols[2].markdown(nowrap(fmt_money(r['avg_price'], is_usd)), unsafe_allow_html=True)
+            row_cols[2].markdown(nowrap(fmt_money(r['avg_price'], is_usd, decimals=2)), unsafe_allow_html=True)
 
         # RSI 표시 (과매수/과매도 색상 표시)
         if r["rsi"] is not None:
@@ -1544,8 +1550,8 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             shortfall = target_amount - r["eval_amount"]
 
             row_cols[3].markdown(
-                nowrap(combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원")) if (is_usd and cur_fx)
-                else nowrap(fmt_money(r['current_price'], is_usd)),
+                nowrap(combine_currency(fmt_money(r['current_price'], is_usd, decimals=2), f"{r['current_price'] * cur_fx:,.0f}원")) if (is_usd and cur_fx)
+                else nowrap(fmt_money(r['current_price'], is_usd, decimals=2)),
                 unsafe_allow_html=True
             )
             row_cols[4].markdown(rsi_html, unsafe_allow_html=True)
@@ -1696,7 +1702,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
         display_name = get_display_name(r["ticker"], r["name"])
         target_weight = r.get("target_weight", 0.0) or 0.0
 
-        avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd)
+        avg_txt = combine_currency(fmt_money(r['avg_price'], is_usd, decimals=2), f"{r['avg_price'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['avg_price'], is_usd, decimals=2)
 
         if r["eval_amount"] is not None:
             profit_amount = r["eval_amount"] - r["buy_amount"]
@@ -1705,7 +1711,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             arrow = "▲" if profit_pct >= 0 else "▼"
             current_weight = (r["eval_amount"] / total_eval_amount * 100) if total_eval_amount > 0 else 0.0
 
-            cur_txt = combine_currency(fmt_money(r['current_price'], is_usd), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd)
+            cur_txt = combine_currency(fmt_money(r['current_price'], is_usd, decimals=2), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd, decimals=2)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
             buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
             profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
