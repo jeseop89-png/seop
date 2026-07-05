@@ -1155,8 +1155,8 @@ def add_stock_dialog(portfolio_name):
                         selected_name = kr_name
 
     st.divider()
-    qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.0f")
-    avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=1.0, format="%.0f")
+    qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.4f")
+    avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.01, format="%.2f")
     target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f")
 
     is_usd = bool(selected_symbol) and not (selected_symbol.endswith(".KS") or selected_symbol.endswith(".KQ"))
@@ -1201,8 +1201,8 @@ def edit_stock_dialog(portfolio_name, index):
 
     is_usd = not (holding["ticker"].endswith(".KS") or holding["ticker"].endswith(".KQ"))
 
-    new_qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.0f", value=float(holding["qty"]))
-    new_avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=1.0, format="%.0f", value=float(holding["avg_price"]))
+    new_qty = st.number_input("수량", min_value=0.0, step=1.0, format="%.4f", value=float(holding["qty"]))
+    new_avg_price = st.number_input("평단가 (매수 평균단가)", min_value=0.0, step=0.01, format="%.2f", value=float(holding["avg_price"]))
     new_target_weight = st.number_input("목표비중 (%)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f", value=float(holding.get("target_weight", 0.0) or 0.0))
 
     new_buy_fx_rate = holding.get("buy_fx_rate", 0.0) or 0.0
@@ -1817,6 +1817,14 @@ else:
                     + metric("평가손익", profit_txt)
                     + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
                     + (metric("💱 환차익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
+                    + (
+                        metric(
+                            "총손익(원화, 환차익 포함)",
+                            (lambda tk=(fx_summary["eval_krw"] - fx_summary["buy_krw"]):
+                                f'<span style="color:{"#ff4d4d" if tk >= 0 else "#4d94ff"};">{"▲" if tk >= 0 else "▼"} {abs(tk):,.0f}원 ({(tk / fx_summary["buy_krw"] * 100) if fx_summary["buy_krw"] else 0:.1f}%)</span>'
+                            )()
+                        ) if has_fx else ""
+                    )
                     + '</div>'
                 )
                 st.markdown(metrics_html, unsafe_allow_html=True)
