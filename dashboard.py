@@ -692,12 +692,13 @@ def render_market_overview():
         # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
-    # 2. 핵심 지수 티커 바 (코스피/나스닥/반도체/환율 + 공포탐욕)
-    #    카드 대신 얇은 한 줄 바로 표시해서 공간을 적게 쓰고 로딩도 가볍게 함.
-    def ticker_cell(name, data, unit="", suffix="", decimals=2):
+    # 2. 지수 티커 바 2줄 (접기 없이 항상 표시)
+    #    1줄: 코스피·S&P500·나스닥·반도체·골드
+    #    2줄: 원유·빅스·환율·국채(2년/10년)·공포탐욕
+    def ticker_cell(name, data, unit="", suffix="", decimals=2, extra=""):
         if not data:
             return (
-                '<div style="flex:1 1 0;min-width:0;padding:8px 10px;border-right:1px solid #222;text-align:center;">'
+                '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
                 f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
                 '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div>'
                 '</div>'
@@ -705,94 +706,82 @@ def render_market_overview():
         pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
         arrow = "▲" if data['change_pct'] >= 0 else "▼"
         return (
-            '<div style="flex:1 1 0;min-width:0;padding:8px 10px;border-right:1px solid #222;text-align:center;">'
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
-            f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
             f'<div style="font-size:11px;font-weight:700;color:{pct_color};white-space:nowrap;">{arrow} {abs(data["change_pct"]):.2f}%</div>'
+            f'{extra}'
             '</div>'
         )
 
+    # 데이터 조회
     kospi = get_korean_index_final("KOSPI")
-    nasdaq = get_index_data("QQQ")   # ^IXIC 지수는 야후가 안 줘서 QQQ(나스닥100 ETF)로 대체
-    sox = get_index_data("SOXX")     # ^SOX 지수 대신 SOXX(반도체 ETF)로 대체
+    sp500 = get_index_data("VOO")
+    nasdaq = get_index_data("QQQ")
+    sox = get_index_data("SOXX")
+    gold = get_index_data("GC=F")
+    oil = get_index_data("CL=F")
+    vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
     krw = get_index_data("USDKRW=X")
+    shy_data = get_index_data("SHY") or {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
+    if shy_data['current'] > 15: shy_data['current'] = 4.12
+    tnx_data = get_index_data("^TNX") or {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
+    if tnx_data['current'] > 15: tnx_data['current'] = tnx_data['current'] / 10
     fg_score, fg_status = get_cnn_fear_greed()
 
+    # 빅스 상태 태그
+    vix_v = vix_data['current']
+    if vix_v < 15: vix_msg, vix_color = "안정", "#4dff4d"
+    elif vix_v < 20: vix_msg, vix_color = "유의", "#ffff4d"
+    elif vix_v < 30: vix_msg, vix_color = "경계", "#ff944d"
+    else: vix_msg, vix_color = "위험", "#ff4d4d"
+    vix_extra = f'<div style="margin-top:1px;"><span style="font-size:10px;color:{vix_color};">{vix_msg}</span></div>'
+
+    # 국채: 한 칸에 2년/10년 같이
+    shy_color = "#ff4d4d" if shy_data['change_pct'] >= 0 else "#4d94ff"
+    tnx_color = "#ff4d4d" if tnx_data['change_pct'] >= 0 else "#4d94ff"
+    bond_cell = (
+        '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
+        '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🇺🇸 국채</div>'
+        f'<div style="font-size:12px;font-weight:700;color:#fff;margin-top:2px;white-space:nowrap;">2년 <span style="color:{shy_color};">{shy_data["current"]:.2f}%</span></div>'
+        f'<div style="font-size:12px;font-weight:700;color:#fff;white-space:nowrap;">10년 <span style="color:{tnx_color};">{tnx_data["current"]:.2f}%</span></div>'
+        '</div>'
+    )
+
+    # 공포탐욕
     en_map = {"극단적 공포": "Extreme Fear", "공포": "Fear", "중립": "Neutral", "탐욕": "Greed", "극단적 탐욕": "Extreme Greed"}
     en_label = en_map.get(fg_status, fg_status)
     fg_cell = (
-        '<div style="flex:1 1 0;min-width:0;padding:8px 10px;text-align:center;">'
+        '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
         '<div style="font-size:11px;color:#aaa;white-space:nowrap;">공포·탐욕</div>'
-        f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;">{fg_score}</div>'
+        f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;">{fg_score}</div>'
         f'<div style="font-size:10px;font-weight:700;color:#ccc;white-space:nowrap;">{en_label}</div>'
         '</div>'
     )
 
-    ticker_bar = (
+    # 1줄: 코스피 · S&P500 · 나스닥 · 반도체 · 골드
+    row1 = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
         + ticker_cell("코스피", kospi, unit="", decimals=2)
+        + ticker_cell("S&P500·VOO", sp500, unit="$", decimals=2)
         + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2)
         + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2)
+        + ticker_cell("🥇 골드", gold, unit="$", decimals=2)
+        + '</div>'
+    )
+    st.markdown(row1, unsafe_allow_html=True)
+
+    # 2줄: 원유 · 빅스 · 환율 · 국채(2/10년) · 공포탐욕
+    row2 = (
+        '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
+        + ticker_cell("🛢️ 원유", oil, unit="$", decimals=2)
+        + ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra)
         + ticker_cell("환율", krw, unit="₩", decimals=1)
+        + bond_cell
         + fg_cell
         + '</div>'
     )
-    st.markdown(ticker_bar, unsafe_allow_html=True)
-
-    # 3. 나머지 매크로 지표는 접이식으로 (기본은 접혀 있어 화면 깔끔 + 로딩 부담 ↓)
-    with st.expander("📊 매크로 더보기 (S&P500 · 골드 · 원유 · 국채 · 니케이 · 빅스)"):
-        def mini_cell(name, data, unit="", suffix="", decimals=2, extra=""):
-            if not data:
-                return (
-                    '<div style="background:#111;border-radius:6px;padding:8px 10px;text-align:center;">'
-                    f'<div style="font-size:11px;color:#aaa;">{name}</div>'
-                    '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div>'
-                    '</div>'
-                )
-            pct_color = "#ff4d4d" if data['change_pct'] >= 0 else "#4d94ff"
-            arrow = "▲" if data['change_pct'] >= 0 else "▼"
-            drop_html = ""
-            if data.get("high") is not None and data.get("drop") is not None:
-                drop_html = f'<div style="font-size:10px;color:#888;margin-top:2px;">신고대비 <span style="color:#4d94ff;">{data["drop"]:.1f}%</span></div>'
-            return (
-                '<div style="background:#111;border-radius:6px;padding:8px 10px;">'
-                f'<div style="font-size:11px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>'
-                f'<div style="font-size:15px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{unit}{data["current"]:,.{decimals}f}{suffix}</div>'
-                f'<div style="font-size:11px;font-weight:700;color:{pct_color};">{arrow} {abs(data["change_pct"]):.2f}%</div>'
-                f'{drop_html}{extra}'
-                '</div>'
-            )
-
-        sp500 = get_index_data("VOO")   # ^GSPC 지수 대신 VOO(S&P500 ETF)
-        nikkei = get_index_data("EWJ")  # ^N225 지수 대신 EWJ(일본 ETF, 니케이 근사)
-        gold = get_index_data("GC=F")
-        oil = get_index_data("CL=F")
-        vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
-        shy_data = get_index_data("SHY") or {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
-        if shy_data['current'] > 15: shy_data['current'] = 4.12
-        tnx_data = get_index_data("^TNX") or {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
-        if tnx_data['current'] > 15: tnx_data['current'] = tnx_data['current'] / 10
-
-        vix_v = vix_data['current']
-        if vix_v < 15: vix_msg, vix_color = "안정", "#4dff4d"
-        elif vix_v < 20: vix_msg, vix_color = "유의", "#ffff4d"
-        elif vix_v < 30: vix_msg, vix_color = "경계", "#ff944d"
-        else: vix_msg, vix_color = "위험", "#ff4d4d"
-        vix_extra = f'<div style="margin-top:2px;"><span style="font-size:10px;color:{vix_color};">{vix_msg}</span></div>'
-
-        _mc = _macro_wrap = st.container(key="macro_row")
-        m1 = _mc.columns(3)
-        with m1[0]: st.markdown(mini_cell("S&P500·VOO", sp500, unit="$"), unsafe_allow_html=True)
-        with m1[1]: st.markdown(mini_cell("일본·EWJ", nikkei, unit="$"), unsafe_allow_html=True)
-        with m1[2]: st.markdown(mini_cell("🥇 골드", gold, unit="$"), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-        m2 = st.columns(3)
-        with m2[0]: st.markdown(mini_cell("🛢️ 원유 WTI", oil, unit="$"), unsafe_allow_html=True)
-        with m2[1]: st.markdown(mini_cell("빅스 VIX", vix_data, unit="", extra=vix_extra), unsafe_allow_html=True)
-        with m2[2]: st.markdown(mini_cell("국채 10년", tnx_data, unit="", suffix="%", decimals=3), unsafe_allow_html=True)
-        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-        m3 = st.columns(3)
-        with m3[0]: st.markdown(mini_cell("국채 2년", shy_data, unit="", suffix="%"), unsafe_allow_html=True)
+    st.markdown(row2, unsafe_allow_html=True)
 
 
 render_market_overview()
