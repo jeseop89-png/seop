@@ -1804,7 +1804,7 @@ else:
 
                 def metric(label, value_html):
                     return (
-                        '<div style="min-width:120px;">'
+                        '<div style="flex:1 1 140px;min-width:140px;">'
                         f'<div style="font-size:11px;color:#888888;">{label}</div>'
                         f'<div style="font-size:17px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
                         '</div>'
@@ -1817,7 +1817,7 @@ else:
                     profit_txt += f' <span style="color:{color};font-size:0.82em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
 
                 metrics_html = (
-                    '<div style="display:flex;gap:26px;flex-wrap:nowrap;align-items:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;">'
+                    '<div style="display:flex;gap:18px 26px;flex-wrap:wrap;align-items:flex-start;">'
                     + metric("총 매수금액", buy_txt)
                     + metric("총 평가금액", eval_txt)
                     + metric("평가손익", profit_txt)
