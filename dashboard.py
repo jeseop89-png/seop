@@ -238,8 +238,91 @@ def get_naver_world_index(naver_symbol):
         return None
 
 
+# Finnhub 티커 매핑: 야후 심볼 -> Finnhub 심볼 (대부분 동일, ETF/주식은 그대로)
+FINNHUB_SYMBOLS = {
+    "QQQ": "QQQ", "VOO": "VOO", "SOXX": "SOXX", "EWJ": "EWJ", "SPY": "SPY",
+    "SHY": "SHY", "GC=F": "OANDA:XAU_USD", "CL=F": "WTICOUSD",
+    "USDKRW=X": "OANDA:USD_KRW",
+    # ^VIX, ^TNX 등 순수 지수는 Finnhub 무료로 안 되므로 매핑 안 함 (야후 폴백)
+}
+
+
+@st.cache_data(ttl=60)
+def get_finnhub_quote(ticker):
+    """Finnhub 정식 API로 실시간 시세 조회. 야후(yfinance)와 달리 IP 차단이 없어
+    클라우드에서도 빠르고 안정적. API 키는 Streamlit Secrets의 FINNHUB_API_KEY에 등록."""
+    try:
+        api_key = st.secrets.get("FINNHUB_API_KEY")
+    except Exception:
+        api_key = None
+    if not api_key:
+        return None
+
+    fh_symbol = FINNHUB_SYMBOLS.get(ticker, ticker)
+    try:
+        url = "https://finnhub.io/api/v1/quote"
+        params = {"symbol": fh_symbol, "token": api_key}
+        res = requests.get(url, params=params, timeout=5)
+        res.raise_for_status()
+        d = res.json()
+        # c=현재가, dp=전일대비 변동률(%), h/l=당일 고저, pc=전일종가
+        if d.get("c") and d["c"] > 0:
+            return {
+                "current": d["c"],
+                "change_pct": d.get("dp") if d.get("dp") is not None else 0.0,
+            }
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=120)
 def get_index_data(ticker):
+    stats = get_year_history_stats(ticker)  # 52주 최고가/전일종가 (실패하면 None일 수 있음)
+    try:
+        current_price = None
+        change_pct = None
+
+        # 1순위: Finnhub 정식 API (등록된 심볼만) - 실시간 + IP 차단 없음
+        fh = get_finnhub_quote(ticker)
+        if fh:
+            current_price = fh["current"]
+            change_pct = fh["change_pct"]
+
+        # 2순위: 네이버 월드증시 (지원하는 지수만)
+        if current_price is None:
+            naver_symbol = NAVER_WORLD_SYMBOLS.get(ticker)
+            if naver_symbol:
+                naver_data = get_naver_world_index(naver_symbol)
+                if naver_data:
+                    current_price = naver_data["current"]
+                    change_pct = naver_data["change_pct"]
+
+        # 3순위: yfinance 폴백
+        if current_price is None:
+            current_price = get_yf_live_price(ticker)
+            if current_price is None and stats:
+                current_price = stats["last_close"]
+            if current_price is None:
+                return None
+            if change_pct is None and stats:
+                change_pct = ((current_price - stats["prev_close"]) / stats["prev_close"]) * 100
+
+        if change_pct is None:
+            change_pct = 0.0
+
+        # 52주 최고가 데이터가 있으면 넣고, 없으면 생략
+        if stats:
+            high_52w = stats["high_52w"]
+            drop_pct = ((current_price - high_52w) / high_52w) * 100
+            return {"current": current_price, "change_pct": change_pct, "high": high_52w, "drop": drop_pct}
+        else:
+            return {"current": current_price, "change_pct": change_pct, "high": None, "drop": None}
+    except Exception:
+        return None
+
+
+def _unused_old_get_index_data(ticker):
     stats = get_year_history_stats(ticker)  # 52주 최고가/전일종가 (실패하면 None일 수 있음)
     try:
         current_price = None
@@ -593,10 +676,10 @@ def render_market_overview():
     with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
-            _warm_pool.submit(get_index_data, "^GSPC"),
-            _warm_pool.submit(get_index_data, "^IXIC"),
-            _warm_pool.submit(get_index_data, "^SOX"),
-            _warm_pool.submit(get_index_data, "^N225"),
+            _warm_pool.submit(get_index_data, "VOO"),
+            _warm_pool.submit(get_index_data, "QQQ"),
+            _warm_pool.submit(get_index_data, "SOXX"),
+            _warm_pool.submit(get_index_data, "EWJ"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
@@ -630,8 +713,8 @@ def render_market_overview():
         )
 
     kospi = get_korean_index_final("KOSPI")
-    nasdaq = get_index_data("^IXIC")
-    sox = get_index_data("^SOX")
+    nasdaq = get_index_data("QQQ")   # ^IXIC 지수는 야후가 안 줘서 QQQ(나스닥100 ETF)로 대체
+    sox = get_index_data("SOXX")     # ^SOX 지수 대신 SOXX(반도체 ETF)로 대체
     krw = get_index_data("USDKRW=X")
     fg_score, fg_status = get_cnn_fear_greed()
 
@@ -648,8 +731,8 @@ def render_market_overview():
     ticker_bar = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
         + ticker_cell("코스피", kospi, unit="", decimals=2)
-        + ticker_cell("나스닥", nasdaq, unit="$", decimals=2)
-        + ticker_cell("반도체", sox, unit="$", decimals=2)
+        + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2)
+        + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2)
         + ticker_cell("환율", krw, unit="₩", decimals=1)
         + fg_cell
         + '</div>'
@@ -680,8 +763,8 @@ def render_market_overview():
                 '</div>'
             )
 
-        sp500 = get_index_data("^GSPC")
-        nikkei = get_index_data("^N225")
+        sp500 = get_index_data("VOO")   # ^GSPC 지수 대신 VOO(S&P500 ETF)
+        nikkei = get_index_data("EWJ")  # ^N225 지수 대신 EWJ(일본 ETF, 니케이 근사)
         gold = get_index_data("GC=F")
         oil = get_index_data("CL=F")
         vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
@@ -699,8 +782,8 @@ def render_market_overview():
 
         _mc = _macro_wrap = st.container(key="macro_row")
         m1 = _mc.columns(3)
-        with m1[0]: st.markdown(mini_cell("S&P 500", sp500, unit="$"), unsafe_allow_html=True)
-        with m1[1]: st.markdown(mini_cell("니케이225", nikkei, unit="$"), unsafe_allow_html=True)
+        with m1[0]: st.markdown(mini_cell("S&P500·VOO", sp500, unit="$"), unsafe_allow_html=True)
+        with m1[1]: st.markdown(mini_cell("일본·EWJ", nikkei, unit="$"), unsafe_allow_html=True)
         with m1[2]: st.markdown(mini_cell("🥇 골드", gold, unit="$"), unsafe_allow_html=True)
         st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
         m2 = st.columns(3)
@@ -1047,6 +1130,10 @@ def get_current_price(ticker):
         if price is not None:
             return price
     else:
+        # 미국 종목은 Finnhub 먼저 (실시간 + 빠름), 실패 시 yfinance
+        fh = get_finnhub_quote(ticker)
+        if fh is not None:
+            return fh["current"]
         live = get_yf_live_price(ticker)
         if live is not None:
             return live
