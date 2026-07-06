@@ -1785,7 +1785,12 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             cur_txt = combine_currency(fmt_money(r['current_price'], is_usd, decimals=2), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd, decimals=2)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
             buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
-            profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
+            # 수익(평가손익): 원화는 주가 손익만 현재환율로 환산
+            if is_usd and cur_fx:
+                profit_krw = profit_amount * cur_fx
+                profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} <span style="color:#c8c8c8;font-size:0.9em;">({abs(profit_krw):,.0f}원)</span> ({abs(profit_pct):.1f}%)</span>'
+            else:
+                profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
 
             diff_pct = current_weight - target_weight
             if abs(diff_pct) <= 2:
@@ -1798,13 +1803,18 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             # 목표비중 대비 조정 필요 금액: 부족하면 매수, 초과하면 판매
             target_amount = (target_weight / 100) * total_eval_amount
             shortfall = target_amount - r["eval_amount"]
+
+            def _adj_txt(amount, color_hex, word):
+                base = f'{word} {fmt_money(amount, is_usd)}'
+                if is_usd and cur_fx:
+                    base += f' <span style="color:#c8c8c8;font-size:0.9em;">({amount * cur_fx:,.0f}원)</span>'
+                return f'<span style="color:{color_hex};">{base}</span>'
+
             if shortfall > 0:
-                # 목표보다 적게 담김 -> 더 사야 함
-                adjust_val = f'<span style="color:#ff4d4d;">매수 {fmt_money(shortfall, is_usd)}</span>'
+                adjust_val = _adj_txt(shortfall, "#ff4d4d", "매수")
                 adjust_label = "부족 (매수 필요)"
             elif shortfall < 0:
-                # 목표보다 많이 담김 -> 팔아야 함
-                adjust_val = f'<span style="color:#4d94ff;">판매 {fmt_money(abs(shortfall), is_usd)}</span>'
+                adjust_val = _adj_txt(abs(shortfall), "#4d94ff", "판매")
                 adjust_label = "초과 (판매 필요)"
             else:
                 adjust_val = "-"
