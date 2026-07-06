@@ -743,6 +743,9 @@ def render_market_overview():
             _warm_pool.submit(get_index_data, "^TNX"),
             _warm_pool.submit(get_index_data, "USDKRW=X"),
             _warm_pool.submit(get_cnn_fear_greed),
+            _warm_pool.submit(get_high_yield_spread),
+            _warm_pool.submit(get_global_m2),
+            _warm_pool.submit(get_finnhub_quote, "BINANCE:BTCUSDT"),
             _warm_pool.submit(get_recent_closes, "VOO"),
             _warm_pool.submit(get_recent_closes, "QQQ"),
             _warm_pool.submit(get_recent_closes, "SOXX"),
@@ -850,34 +853,57 @@ def render_market_overview():
     )
     st.markdown(row2, unsafe_allow_html=True)
 
-    # 3줄(선택): 하이일드 스프레드 + 글로벌 M2 (FRED_API_KEY 등록 시에만 표시)
+    # 3줄: 하이일드 스프레드(신호) + 글로벌 M2(추세차트) + 비트코인
     hy = get_high_yield_spread()
     m2 = get_global_m2()
+    btc = get_finnhub_quote("BINANCE:BTCUSDT")
     fred_cells = []
+
     if hy:
-        hy_color = "#ff4d4d" if (hy.get("change") or 0) >= 0 else "#4d94ff"
-        hy_arrow = "▲" if (hy.get("change") or 0) >= 0 else "▼"
-        chg = f'<div style="font-size:11px;font-weight:700;color:{hy_color};white-space:nowrap;">{hy_arrow} {abs(hy["change"]):.2f}%p</div>' if hy.get("change") is not None else ""
+        v = hy["value"]
+        # 하이일드 스프레드 신호 (통상 해석): 낮을수록 안정, 높을수록 신용 경색
+        if v < 3.5: sig_txt, sig_color = "🟢 안정", "#4dff4d"
+        elif v < 5: sig_txt, sig_color = "🟡 보통", "#ffff4d"
+        elif v < 8: sig_txt, sig_color = "🟠 경계", "#ff944d"
+        else: sig_txt, sig_color = "🔴 위험", "#ff4d4d"
         fred_cells.append(
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드 스프레드</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{hy["value"]:.2f}%</div>'
-            f'{chg}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{v:.2f}%</div>'
+            f'<div style="font-size:11px;font-weight:700;color:{sig_color};white-space:nowrap;">{sig_txt}</div>'
+            '</div>'
         )
+
     if m2:
         m2_val = m2.get("total_trillion")
         m2_yoy = m2.get("yoy")
-        chg = ""
+        trend = m2.get("trend") or []
+        spark_color = "#4dff4d" if (m2_yoy or 0) >= 0 else "#ff4d4d"
+        spark = make_sparkline_svg(trend, width=90, height=24, color=spark_color) if len(trend) >= 2 else ""
+        yoy_txt = ""
         if m2_yoy is not None:
-            m2_color = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
-            m2_arrow = "▲" if m2_yoy >= 0 else "▼"
-            chg = f'<div style="font-size:11px;font-weight:700;color:{m2_color};white-space:nowrap;">{m2_arrow} {abs(m2_yoy):.1f}% (YoY)</div>'
+            yc = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
+            ya = "▲" if m2_yoy >= 0 else "▼"
+            yoy_txt = f'<span style="font-size:11px;font-weight:700;color:{yc};">{ya} {abs(m2_yoy):.1f}%</span>'
+        fred_cells.append(
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T {yoy_txt}</div>'
+            f'<div style="margin-top:2px;">{spark}</div>'
+            '</div>'
+        )
+
+    if btc:
+        btc_color = "#ff4d4d" if btc["change_pct"] >= 0 else "#4d94ff"
+        btc_arrow = "▲" if btc["change_pct"] >= 0 else "▼"
         fred_cells.append(
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T</div>'
-            f'{chg}</div>'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${btc["current"]:,.0f}</div>'
+            f'<div style="font-size:11px;font-weight:700;color:{btc_color};white-space:nowrap;">{btc_arrow} {abs(btc["change_pct"]):.2f}%</div>'
+            '</div>'
         )
+
     if fred_cells:
         row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(fred_cells) + '</div>'
         st.markdown(row3, unsafe_allow_html=True)
@@ -1734,12 +1760,13 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
 
 
 def render_weight_donut(rows, total_eval_amount):
-    """포트폴리오 종목별 현재 비중을 도넛(원형) 차트로 표시."""
+    """포트폴리오 종목별 현재 비중을 도넛(원형) 차트로 표시. 범례에 목표비중도 함께 표기."""
     items = []
     for r in rows:
         if r["eval_amount"] and total_eval_amount > 0:
             w = r["eval_amount"] / total_eval_amount * 100
-            items.append((get_display_name(r["ticker"], r["name"]), w))
+            tw = r.get("target_weight", 0.0) or 0.0
+            items.append((get_display_name(r["ticker"], r["name"]), w, tw))
     if not items:
         return
     items.sort(key=lambda x: -x[1])
@@ -1750,9 +1777,16 @@ def render_weight_donut(rows, total_eval_amount):
     size, r_out, r_in = 180, 80, 48
     cx = cy = size / 2
     segments = ""
-    legend = ""
+    legend = (
+        '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:10px;color:#777;">'
+        '<span style="width:10px;flex:0 0 auto;"></span>'
+        '<span style="flex:1 1 auto;min-width:0;">종목</span>'
+        '<span style="flex:0 0 auto;width:42px;text-align:right;">현재</span>'
+        '<span style="flex:0 0 auto;width:42px;text-align:right;">목표</span>'
+        '</div>'
+    )
     angle = -90.0
-    for i, (name, w) in enumerate(items):
+    for i, (name, w, tw) in enumerate(items):
         color = palette[i % len(palette)]
         sweep = w / 100 * 360
         a0 = math.radians(angle)
@@ -1770,7 +1804,8 @@ def render_weight_donut(rows, total_eval_amount):
             '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
             f'<span style="width:10px;height:10px;border-radius:2px;background:{color};display:inline-block;flex:0 0 auto;"></span>'
             f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</span>'
-            f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;">{w:.1f}%</span>'
+            f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;width:42px;text-align:right;">{w:.1f}%</span>'
+            f'<span style="font-size:12px;color:#888;flex:0 0 auto;width:42px;text-align:right;">{tw:.0f}%</span>'
             '</div>'
         )
         angle += sweep
@@ -1778,7 +1813,7 @@ def render_weight_donut(rows, total_eval_amount):
     donut_svg = f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{segments}</svg>'
 
     st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:15px;font-weight:700;margin-bottom:8px;'>📊 종목별 비중</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:15px;font-weight:700;margin-bottom:8px;'>📊 종목별 비중 (현재 vs 목표)</div>", unsafe_allow_html=True)
     dcols = st.columns([1, 1])
     with dcols[0]:
         st.markdown(f'<div style="display:flex;justify-content:center;">{donut_svg}</div>', unsafe_allow_html=True)
