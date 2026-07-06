@@ -938,15 +938,15 @@ def get_display_name(ticker, fallback_name):
 
 
 def fmt_money(value, is_usd, decimals=None):
-    """달러는 '95$', 원화는 '1,234원' 형식으로 통일해서 반환.
-    decimals를 지정하면 그 자릿수로 표시 (평단가/현재가처럼 소수점이 중요한 값에 사용).
-    지정 안 하면 달러/원화 모두 정수로 표시 (총액처럼 큰 금액에 사용).
+    """달러는 '95.12$', 원화는 '1,234원' 형식으로 반환.
+    decimals는 달러에만 적용됨 (평단가/현재가처럼 소수점이 중요한 값에 사용).
+    원화(원)는 소수점 단위가 없으므로 항상 정수로 표시.
     &#36;은 Streamlit markdown이 '$'를 LaTeX 수식 기호로 잘못 해석하는 걸 막기 위한 HTML 엔티티."""
-    if decimals is None:
-        decimals = 0
     if is_usd:
-        return f"{value:,.{decimals}f}&#36;"
-    return f"{value:,.{decimals}f}원"
+        d = 0 if decimals is None else decimals
+        return f"{value:,.{d}f}&#36;"
+    # 원화는 소수점 없이 항상 정수
+    return f"{value:,.0f}원"
 
 
 def fmt_krw(value):
