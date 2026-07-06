@@ -1821,7 +1821,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
                 '<div style="background-color:#161616;border-radius:8px;padding:14px 16px;margin-bottom:2px;width:100%;box-sizing:border-box;">'
                 '<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #262626;padding-bottom:8px;margin-bottom:2px;">'
                 f'<span style="font-size:16px;font-weight:800;color:#ffffff;">{display_name} <span style="font-size:11px;color:#888;font-weight:400;">({r["ticker"]})</span></span>'
-                f'<span style="font-size:12px;color:#999;">수량 <span style="color:#fff;font-weight:700;">{r["qty"]:,.0f}</span></span>'
+                f'<span style="font-size:12px;color:#999;">수량&nbsp;&nbsp;<span style="color:#fff;font-weight:700;font-size:14px;">{r["qty"]:,.0f}</span></span>'
                 '</div>'
                 '<div style="display:flex;gap:16px;">'
                 f'<div style="flex:1;min-width:0;">{left_col}</div>'
@@ -1840,7 +1840,12 @@ st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
 title_cols = st.columns([5, 1])
 with title_cols[0]:
-    st.markdown("<h3 style='margin:0px;padding:0px;'>📂 내 포트폴리오</h3>", unsafe_allow_html=True)
+    st.markdown(
+        "<h3 style='margin:0px;padding:0px;font-weight:800;letter-spacing:-0.5px;'>"
+        "<span style='display:inline-block;width:4px;height:20px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:8px;vertical-align:-3px;'></span>"
+        "내 포트폴리오</h3>",
+        unsafe_allow_html=True
+    )
 with title_cols[1]:
     if st.button("+ 포트폴리오 생성", use_container_width=True):
         create_portfolio_dialog()
@@ -1853,7 +1858,7 @@ else:
         "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
         key="view_mode_radio", label_visibility="collapsed"
     )
-    tabs = st.tabs([f"📁 {name}" for name in portfolio_names])
+    tabs = st.tabs([f"　{name}　" for name in portfolio_names])
 
     for p_idx, (p_name, tab) in enumerate(zip(portfolio_names, tabs)):
         with tab:
@@ -1885,7 +1890,9 @@ else:
                 eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
                 profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
                 if has_fx:
-                    profit_txt += f' <span style="color:{color};font-size:0.9em;">({abs(fx_summary["eval_krw"] - fx_summary["buy_krw"]):,.0f}원)</span>'
+                    # 평가손익의 원화 표기는 "주가 손익만" 현재환율로 환산 (환차익은 별도 항목에서)
+                    stock_gain_krw = total_profit * fx_summary["cur_fx"]
+                    profit_txt += f' <span style="color:{color};font-size:0.9em;">({abs(stock_gain_krw):,.0f}원)</span>'
 
                 metrics_html = (
                     '<div style="display:flex;gap:18px 26px;flex-wrap:wrap;align-items:flex-start;">'
@@ -1893,20 +1900,12 @@ else:
                     + metric("총 평가금액", eval_txt)
                     + metric("평가손익", profit_txt)
                     + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
-                    + (metric("💱 환차익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
-                    + (
-                        metric(
-                            "총손익(원화, 환차익 포함)",
-                            (lambda tk=(fx_summary["eval_krw"] - fx_summary["buy_krw"]):
-                                f'<span style="color:{"#ff4d4d" if tk >= 0 else "#4d94ff"};">{"▲" if tk >= 0 else "▼"} {abs(tk):,.0f}원 ({(tk / fx_summary["buy_krw"] * 100) if fx_summary["buy_krw"] else 0:.1f}%)</span>'
-                            )()
-                        ) if has_fx else ""
-                    )
+                    + (metric("💱 환차손익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
                     + '</div>'
                 )
                 st.markdown(metrics_html, unsafe_allow_html=True)
                 if has_fx:
-                    st.markdown(f'<div style="font-size:10px;color:#666;margin-top:4px;">현재환율 {fx_summary["cur_fx"]:,.0f}원/달러 기준 원화환산</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-size:10px;color:#666;margin-top:4px;">평가손익=주가 변동만 · 환차손익=환율 변동만 (현재환율 {fx_summary["cur_fx"]:,.0f}원/달러 기준)</div>', unsafe_allow_html=True)
             else:
                 st.caption("종목을 추가하면 요약이 표시됩니다.")
 
