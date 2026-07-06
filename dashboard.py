@@ -19,21 +19,27 @@ st.markdown(
     """
     <style>
     div[data-testid="stButton"] > button {
-        border-radius: 8px;
-        border: 1px solid #333333;
-        background-color: #1a1a1a;
-        color: #dddddd;
-        padding: 2px 10px;
-        transition: all 0.15s ease;
+        border-radius: 10px;
+        border: 1px solid #2a2a2a;
+        background: linear-gradient(180deg, #1c1c1c, #151515);
+        color: #e0e0e0;
+        padding: 8px 14px;
+        font-weight: 600;
+        font-size: 13px;
+        transition: all 0.18s ease;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.3);
     }
     div[data-testid="stButton"] > button:hover {
         border-color: #4dd2ff;
-        color: #4dd2ff;
-        background-color: #1e2a30;
+        color: #ffffff;
+        background: linear-gradient(180deg, #1e2a30, #16222a);
+        box-shadow: 0 2px 8px rgba(77,210,255,0.15);
+        transform: translateY(-1px);
     }
     div[data-testid="stButton"] > button:active {
         border-color: #4dd2ff;
         color: #ffffff;
+        transform: translateY(0px);
     }
     /* 모바일에서 st.columns가 한 줄로 쭉 세로로 쌓이지 않고, 화면 폭에 맞춰
        2개씩 자동으로 줄바꿈되는 격자(그리드)로 보이게 함 (옆으로 스크롤 불필요) */
@@ -844,6 +850,38 @@ def render_market_overview():
     )
     st.markdown(row2, unsafe_allow_html=True)
 
+    # 3줄(선택): 하이일드 스프레드 + 글로벌 M2 (FRED_API_KEY 등록 시에만 표시)
+    hy = get_high_yield_spread()
+    m2 = get_global_m2()
+    fred_cells = []
+    if hy:
+        hy_color = "#ff4d4d" if (hy.get("change") or 0) >= 0 else "#4d94ff"
+        hy_arrow = "▲" if (hy.get("change") or 0) >= 0 else "▼"
+        chg = f'<div style="font-size:11px;font-weight:700;color:{hy_color};white-space:nowrap;">{hy_arrow} {abs(hy["change"]):.2f}%p</div>' if hy.get("change") is not None else ""
+        fred_cells.append(
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드 스프레드</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{hy["value"]:.2f}%</div>'
+            f'{chg}</div>'
+        )
+    if m2:
+        m2_val = m2.get("total_trillion")
+        m2_yoy = m2.get("yoy")
+        chg = ""
+        if m2_yoy is not None:
+            m2_color = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
+            m2_arrow = "▲" if m2_yoy >= 0 else "▼"
+            chg = f'<div style="font-size:11px;font-weight:700;color:{m2_color};white-space:nowrap;">{m2_arrow} {abs(m2_yoy):.1f}% (YoY)</div>'
+        fred_cells.append(
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T</div>'
+            f'{chg}</div>'
+        )
+    if fred_cells:
+        row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(fred_cells) + '</div>'
+        st.markdown(row3, unsafe_allow_html=True)
+
 
 render_market_overview()
 
@@ -955,9 +993,9 @@ def fmt_krw(value):
 
 
 def combine_currency(usd_html, krw_txt):
-    """주(달러) 값은 그대로, 원화 환산값은 옅은 회색 괄호로 붙여줌.
-    예: '95$ (1,500원)' — 원화도 잘 보이도록 달러와 비슷한 크기로 표시"""
-    return f'{usd_html} <span style="color:#c8c8c8;font-size:0.95em;">({krw_txt})</span>'
+    """주(달러) 값 옆에 원화 환산값을 괄호로 붙여줌. 달러와 같은 크기로 표시.
+    예: '95.12$ (145,000원)'"""
+    return f'{usd_html} <span style="color:#c8c8c8;">({krw_txt})</span>'
 
 
 @st.cache_data(ttl=3600)
@@ -1785,10 +1823,10 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             cur_txt = combine_currency(fmt_money(r['current_price'], is_usd, decimals=2), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd, decimals=2)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
             buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
-            # 수익(평가손익): 원화는 주가 손익만 현재환율로 환산
+            # 수익(평가손익): 원화는 주가 손익만 현재환율로 환산. 달러·원화 같은 색·같은 크기.
             if is_usd and cur_fx:
                 profit_krw = profit_amount * cur_fx
-                profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} <span style="color:#c8c8c8;font-size:0.9em;">({abs(profit_krw):,.0f}원)</span> ({abs(profit_pct):.1f}%)</span>'
+                profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_krw):,.0f}원) ({abs(profit_pct):.1f}%)</span>'
             else:
                 profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
 
@@ -1807,7 +1845,7 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             def _adj_txt(amount, color_hex, word):
                 base = f'{word} {fmt_money(amount, is_usd)}'
                 if is_usd and cur_fx:
-                    base += f' <span style="color:#c8c8c8;font-size:0.9em;">({amount * cur_fx:,.0f}원)</span>'
+                    base += f' ({amount * cur_fx:,.0f}원)'
                 return f'<span style="color:{color_hex};">{base}</span>'
 
             if shortfall > 0:
