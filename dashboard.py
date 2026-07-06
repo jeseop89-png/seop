@@ -1729,10 +1729,10 @@ def render_weight_donut(rows, total_eval_amount):
             f'L {x0i:.2f} {y0i:.2f} A {r_in} {r_in} 0 {large} 0 {x1i:.2f} {y1i:.2f} Z" fill="{color}" />'
         )
         legend += (
-            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;white-space:nowrap;">'
+            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
             f'<span style="width:10px;height:10px;border-radius:2px;background:{color};display:inline-block;flex:0 0 auto;"></span>'
-            f'<span style="font-size:12px;color:#ddd;">{name}</span>'
-            f'<span style="font-size:12px;color:#fff;font-weight:700;margin-left:auto;">{w:.1f}%</span>'
+            f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</span>'
+            f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;">{w:.1f}%</span>'
             '</div>'
         )
         angle += sweep
