@@ -735,6 +735,7 @@ def render_market_overview():
     with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
         _warm_jobs = [
             _warm_pool.submit(get_korean_index_final, "KOSPI"),
+            _warm_pool.submit(get_index_data, "EWJ"),
             _warm_pool.submit(get_index_data, "VOO"),
             _warm_pool.submit(get_index_data, "QQQ"),
             _warm_pool.submit(get_index_data, "SOXX"),
@@ -831,47 +832,69 @@ def render_market_overview():
         '</div>'
     )
 
-    # 1줄: 코스피 · S&P500 · 나스닥 · 반도체 (RSI 포함)
+    # 1줄: S&P500 · 나스닥 · 반도체 · 환율
     row1 = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-        + ticker_cell("코스피", kospi, unit="", decimals=2)
         + ticker_cell("S&P500·VOO", sp500, unit="$", decimals=2, rsi=rsi_sp500)
         + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2, rsi=rsi_nasdaq)
         + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2, rsi=rsi_sox)
+        + ticker_cell("환율", krw, unit="₩", decimals=1)
         + '</div>'
     )
     st.markdown(row1, unsafe_allow_html=True)
 
-    # 2줄: 빅스 · 환율 · 국채(2/10년) · 공포탐욕
+    # 2줄: 코스피 · 니케이 · 국채(2/10년) · 비트코인
+    nikkei = get_index_data("EWJ")
+    btc = get_finnhub_quote("BINANCE:BTCUSDT")
+    if btc:
+        btc_color = "#ff4d4d" if btc["change_pct"] >= 0 else "#4d94ff"
+        btc_arrow = "▲" if btc["change_pct"] >= 0 else "▼"
+        btc_cell = (
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
+            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${btc["current"]:,.0f}</div>'
+            f'<div style="font-size:11px;font-weight:700;color:{btc_color};white-space:nowrap;">{btc_arrow} {abs(btc["change_pct"]):.2f}%</div>'
+            '</div>'
+        )
+    else:
+        btc_cell = (
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
+            '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
+        )
     row2 = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-        + ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra)
-        + ticker_cell("환율", krw, unit="₩", decimals=1)
+        + ticker_cell("코스피", kospi, unit="", decimals=2)
+        + ticker_cell("일본·EWJ", nikkei, unit="$", decimals=2)
         + bond_cell
-        + fg_cell
+        + btc_cell
         + '</div>'
     )
     st.markdown(row2, unsafe_allow_html=True)
 
-    # 3줄: 하이일드 스프레드(신호) + 글로벌 M2(추세차트) + 비트코인
+    # 3줄(맨밑): 하이일드(신호) · 글로벌 M2(추세차트) · 빅스 · 공포탐욕
     hy = get_high_yield_spread()
     m2 = get_global_m2()
-    btc = get_finnhub_quote("BINANCE:BTCUSDT")
-    fred_cells = []
+    row3_cells = []
 
     if hy:
         v = hy["value"]
-        # 하이일드 스프레드 신호 (통상 해석): 낮을수록 안정, 높을수록 신용 경색
         if v < 3.5: sig_txt, sig_color = "🟢 안정", "#4dff4d"
         elif v < 5: sig_txt, sig_color = "🟡 보통", "#ffff4d"
         elif v < 8: sig_txt, sig_color = "🟠 경계", "#ff944d"
         else: sig_txt, sig_color = "🔴 위험", "#ff4d4d"
-        fred_cells.append(
+        row3_cells.append(
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드 스프레드</div>'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드</div>'
             f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{v:.2f}%</div>'
             f'<div style="font-size:11px;font-weight:700;color:{sig_color};white-space:nowrap;">{sig_txt}</div>'
             '</div>'
+        )
+    else:
+        row3_cells.append(
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드</div>'
+            '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
         )
 
     if m2:
@@ -884,29 +907,26 @@ def render_market_overview():
         if m2_yoy is not None:
             yc = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
             ya = "▲" if m2_yoy >= 0 else "▼"
-            yoy_txt = f'<span style="font-size:11px;font-weight:700;color:{yc};">{ya} {abs(m2_yoy):.1f}%</span>'
-        fred_cells.append(
+            yoy_txt = f'<span style="font-size:10px;font-weight:700;color:{yc};">{ya}{abs(m2_yoy):.1f}%</span>'
+        row3_cells.append(
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T {yoy_txt}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T {yoy_txt}</div>'
             f'<div style="margin-top:2px;">{spark}</div>'
             '</div>'
         )
-
-    if btc:
-        btc_color = "#ff4d4d" if btc["change_pct"] >= 0 else "#4d94ff"
-        btc_arrow = "▲" if btc["change_pct"] >= 0 else "▼"
-        fred_cells.append(
-            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${btc["current"]:,.0f}</div>'
-            f'<div style="font-size:11px;font-weight:700;color:{btc_color};white-space:nowrap;">{btc_arrow} {abs(btc["change_pct"]):.2f}%</div>'
-            '</div>'
+    else:
+        row3_cells.append(
+            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
+            '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
         )
 
-    if fred_cells:
-        row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(fred_cells) + '</div>'
-        st.markdown(row3, unsafe_allow_html=True)
+    row3_cells.append(ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra))
+    row3_cells.append(fg_cell)
+
+    row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(row3_cells) + '</div>'
+    st.markdown(row3, unsafe_allow_html=True)
 
 
 render_market_overview()
