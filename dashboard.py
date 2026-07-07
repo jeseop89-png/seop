@@ -616,26 +616,27 @@ def get_global_m2():
 
 
 def make_sparkline_svg(values, width=110, height=32, color="#4dff4d"):
-    """작은 추세선(스파크라인) SVG 생성 - 값이 오르면 우상향, 내리면 우하향으로 직관적 표현
-    width/height는 좌표 계산용 내부 기준값이며, 실제 렌더링은 viewBox를 통해
-    부모 요소 크기에 맞게 자동으로 축소/확대되어 컨테이너를 벗어나지 않음."""
+    """작은 추세선(스파크라인) SVG 생성 - 값이 오르면 우상향, 내리면 우하향으로 직관적 표현.
+    값들의 변화폭이 작아도 곡선 모양이 잘 보이도록 세로 공간을 최대한 활용."""
     if not values or len(values) < 2:
         return ""
     min_v, max_v = min(values), max(values)
     range_v = (max_v - min_v) if max_v != min_v else 1
-    pad = 3
-    step = (width - pad * 2) / (len(values) - 1)
+    pad_x = 2
+    pad_y = 4  # 위아래 여백을 줄여 곡선이 세로 공간을 최대한 쓰게
+    step = (width - pad_x * 2) / (len(values) - 1)
     points = []
     for i, v in enumerate(values):
-        x = pad + i * step
-        y = pad + (height - pad * 2) * (1 - (v - min_v) / range_v)
-        points.append(f"{x:.1f},{y:.1f}")
-    points_str = " ".join(points)
-    # 마지막 지점 아래로 영역을 채워 추세를 더 직관적으로
-    area_points = f"{pad:.1f},{height - pad:.1f} " + points_str + f" {width - pad:.1f},{height - pad:.1f}"
+        x = pad_x + i * step
+        y = pad_y + (height - pad_y * 2) * (1 - (v - min_v) / range_v)
+        points.append((x, y))
+    points_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    area_points = f"{pad_x:.1f},{height - pad_y:.1f} " + points_str + f" {width - pad_x:.1f},{height - pad_y:.1f}"
+    last_x, last_y = points[-1]
     return f"""<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" preserveAspectRatio="none" style="display:block; max-width:100%;">
-        <polygon points="{area_points}" fill="{color}" opacity="0.15"/>
-        <polyline points="{points_str}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <polygon points="{area_points}" fill="{color}" opacity="0.18"/>
+        <polyline points="{points_str}" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="{last_x:.1f}" cy="{last_y:.1f}" r="2.5" fill="{color}" vector-effect="non-scaling-stroke"/>
     </svg>"""
 
 
@@ -902,7 +903,7 @@ def render_market_overview():
         m2_yoy = m2.get("yoy")
         trend = m2.get("trend") or []
         spark_color = "#4dff4d" if (m2_yoy or 0) >= 0 else "#ff4d4d"
-        spark = make_sparkline_svg(trend, width=90, height=24, color=spark_color) if len(trend) >= 2 else ""
+        spark = make_sparkline_svg(trend, width=90, height=34, color=spark_color) if len(trend) >= 2 else ""
         yoy_txt = ""
         if m2_yoy is not None:
             yc = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
