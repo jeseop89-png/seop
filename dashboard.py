@@ -800,27 +800,15 @@ def render_market_overview():
     # ⚡ 아래에서 순서대로 하나씩 불러오면 20개 가까운 외부 요청이 직렬로 쌓여서
     # 느려지므로, 먼저 전부 동시에(병렬로) 미리 가져와 캐시를 채워둠.
     # 이후 코드는 그대로 각 함수를 다시 호출하지만, 캐시에 이미 있어서 즉시 반환됨.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=19) as _warm_pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as _warm_pool:
         _warm_jobs = [
-            _warm_pool.submit(get_korean_index_final, "KOSPI"),
-            _warm_pool.submit(get_index_data, "EWJ"),
-            _warm_pool.submit(get_index_data, "VOO"),
-            _warm_pool.submit(get_index_data, "QQQ"),
-            _warm_pool.submit(get_index_data, "SOXX"),
+            _warm_pool.submit(get_index_data, "USDKRW=X"),
             _warm_pool.submit(get_index_data, "^VIX"),
             _warm_pool.submit(get_index_data, "SHY"),
             _warm_pool.submit(get_index_data, "^TNX"),
-            _warm_pool.submit(get_index_data, "USDKRW=X"),
             _warm_pool.submit(get_cnn_fear_greed),
-            _warm_pool.submit(get_high_yield_spread),
             _warm_pool.submit(get_global_m2),
-            _warm_pool.submit(get_finnhub_quote, "BINANCE:BTCUSDT"),
-            _warm_pool.submit(get_recent_closes, "VOO"),
-            _warm_pool.submit(get_recent_closes, "QQQ"),
-            _warm_pool.submit(get_recent_closes, "SOXX"),
         ]
-        # 최대 8초까지만 기다리고, 그 안에 안 끝난 요청은 그냥 넘어감
-        # (하나가 응답 없이 오래 걸려도 전체 페이지가 무한정 안 붙잡히도록)
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
     # 2. 지수 티커 바 2줄 (접기 없이 항상 표시)
@@ -852,23 +840,16 @@ def render_market_overview():
             '</div>'
         )
 
-    # 데이터 조회
-    kospi = get_korean_index_final("KOSPI")
-    sp500 = get_index_data("VOO")
-    nasdaq = get_index_data("QQQ")
-    sox = get_index_data("SOXX")
-    vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
+    # 데이터 조회 (5개만: 환율·공포탐욕·글로벌M2·빅스·미국국채)
     krw = get_index_data("USDKRW=X")
+    vix_data = get_index_data("^VIX") or {"current": 14.50, "change_pct": 1.20, "high": None, "drop": None}
     shy_data = get_index_data("SHY") or {"current": 4.12, "change_pct": 0.05, "high": None, "drop": None}
     if shy_data['current'] > 15: shy_data['current'] = 4.12
     tnx_data = get_index_data("^TNX") or {"current": 4.37, "change_pct": -0.12, "high": None, "drop": None}
     if tnx_data['current'] > 15: tnx_data['current'] = tnx_data['current'] / 10
     fg_score, fg_status = get_cnn_fear_greed()
-
-    # RSI 계산 (지수 ETF만)
-    rsi_sp500 = get_rsi("VOO", sp500["current"] if sp500 else None)
-    rsi_nasdaq = get_rsi("QQQ", nasdaq["current"] if nasdaq else None)
-    rsi_sox = get_rsi("SOXX", sox["current"] if sox else None)
+    hy = get_high_yield_spread()
+    m2 = get_global_m2()
 
     # 빅스 상태 태그
     vix_v = vix_data['current']
@@ -900,71 +881,8 @@ def render_market_overview():
         '</div>'
     )
 
-    # 1줄: S&P500 · 나스닥 · 반도체 · 환율
-    row1 = (
-        '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-        + ticker_cell("S&P500·VOO", sp500, unit="$", decimals=2, rsi=rsi_sp500)
-        + ticker_cell("나스닥·QQQ", nasdaq, unit="$", decimals=2, rsi=rsi_nasdaq)
-        + ticker_cell("반도체·SOXX", sox, unit="$", decimals=2, rsi=rsi_sox)
-        + ticker_cell("환율", krw, unit="₩", decimals=1)
-        + '</div>'
-    )
-    st.markdown(row1, unsafe_allow_html=True)
-
-    # 2줄: 코스피 · 니케이 · 국채(2/10년) · 비트코인
-    nikkei = get_index_data("EWJ")
-    btc = get_finnhub_quote("BINANCE:BTCUSDT")
-    if btc:
-        btc_color = "#ff4d4d" if btc["change_pct"] >= 0 else "#4d94ff"
-        btc_arrow = "▲" if btc["change_pct"] >= 0 else "▼"
-        btc_cell = (
-            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
-            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${btc["current"]:,.0f}</div>'
-            f'<div style="font-size:11px;font-weight:700;color:{btc_color};white-space:nowrap;">{btc_arrow} {abs(btc["change_pct"]):.2f}%</div>'
-            '</div>'
-        )
-    else:
-        btc_cell = (
-            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🪙 비트코인</div>'
-            '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
-        )
-    row2 = (
-        '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-        + ticker_cell("코스피", kospi, unit="", decimals=2)
-        + ticker_cell("일본·EWJ", nikkei, unit="$", decimals=2)
-        + bond_cell
-        + btc_cell
-        + '</div>'
-    )
-    st.markdown(row2, unsafe_allow_html=True)
-
-    # 3줄(맨밑): 하이일드(신호) · 글로벌 M2(추세차트) · 빅스 · 공포탐욕
-    hy = get_high_yield_spread()
-    m2 = get_global_m2()
-    row3_cells = []
-
-    if hy:
-        v = hy["value"]
-        if v < 3.5: sig_txt, sig_color = "🟢 안정", "#4dff4d"
-        elif v < 5: sig_txt, sig_color = "🟡 보통", "#ffff4d"
-        elif v < 8: sig_txt, sig_color = "🟠 경계", "#ff944d"
-        else: sig_txt, sig_color = "🔴 위험", "#ff4d4d"
-        row3_cells.append(
-            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{v:.2f}%</div>'
-            f'<div style="font-size:11px;font-weight:700;color:{sig_color};white-space:nowrap;">{sig_txt}</div>'
-            '</div>'
-        )
-    else:
-        row3_cells.append(
-            '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">하이일드</div>'
-            '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
-        )
-
+    # 하이일드는 국채 신용 위험 참고용으로 M2 대신 표시하지 않고, 요청한 5개만 유지
+    # 글로벌 M2 셀
     if m2:
         m2_val = m2.get("total_trillion")
         m2_yoy = m2.get("yoy")
@@ -976,7 +894,7 @@ def render_market_overview():
             yc = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
             ya = "▲" if m2_yoy >= 0 else "▼"
             yoy_txt = f'<span style="font-size:10px;font-weight:700;color:{yc};">{ya}{abs(m2_yoy):.1f}%</span>'
-        row3_cells.append(
+        m2_cell = (
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
             f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T {yoy_txt}</div>'
@@ -984,19 +902,26 @@ def render_market_overview():
             '</div>'
         )
     else:
-        row3_cells.append(
+        m2_cell = (
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
             '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
             '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
         )
 
-    row3_cells.append(ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra))
-    row3_cells.append(fg_cell)
+    # 환율 셀
+    krw_cell = ticker_cell("환율", krw, unit="₩", decimals=1)
+    # 빅스 셀
+    vix_cell = ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra)
 
-    row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(row3_cells) + '</div>'
-    st.markdown(row3, unsafe_allow_html=True)
+    # 한 줄: 환율 · 공포탐욕 · 글로벌M2 · 빅스 · 국채
+    row = (
+        '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;flex-wrap:wrap;">'
+        + krw_cell + fg_cell + m2_cell + vix_cell + bond_cell
+        + '</div>'
+    )
+    st.markdown(row, unsafe_allow_html=True)
 
-    # 글로벌 M2 큰 추세 차트 (블룸버그 스타일, 접이식)
+    # 글로벌 M2 큰 추세 차트 (접이식)
     if m2 and m2.get("trend") and len(m2["trend"]) >= 2:
         with st.expander("📈 글로벌 M2 추세 차트 (최근 24개월)"):
             trend = m2["trend"]
@@ -1016,7 +941,7 @@ def render_market_overview():
                 f'<span>24개월 전 ${first_v:,.1f}T</span>'
                 f'<span style="color:{chg_color};font-weight:700;">24개월 {"▲" if chg>=0 else "▼"} {abs(chg):.1f}%</span>'
                 '</div>'
-                '<div style="font-size:10px;color:#666;margin-top:8px;">※ 미국 M2 + 유로존 M2 합산 (FRED). M2 통화량은 비트코인·위험자산 흐름의 선행 지표로 활용됨.</div>'
+                '<div style="font-size:10px;color:#666;margin-top:8px;">※ 미국 M2 + 유로존 M2 합산 (FRED). 위험자산 흐름의 선행 지표로 활용됨.</div>'
                 '</div>',
                 unsafe_allow_html=True
             )
