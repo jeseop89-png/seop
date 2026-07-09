@@ -1879,34 +1879,28 @@ def render_portfolio_table(portfolio_name, rows, total_eval_amount):
             edit_stock_dialog(portfolio_name, i)
 
 
-def render_weight_donut(rows, total_eval_amount):
-    """포트폴리오 종목별 현재 비중을 도넛(원형) 차트로 표시. 범례에 목표비중도 함께 표기."""
+def build_weight_donut_svg(rows, total_eval_amount, size=150):
+    """종목별 현재 비중 도넛 SVG를 문자열로 반환. 각 조각 안(중간 반지름 위치)에 비중% 라벨을 표시.
+    가운데 구멍에는 종목 수를 표시. 요약 옆에 배치할 수 있도록 SVG만 돌려줌."""
     items = []
     for r in rows:
         if r["eval_amount"] and total_eval_amount > 0:
             w = r["eval_amount"] / total_eval_amount * 100
-            tw = r.get("target_weight", 0.0) or 0.0
-            items.append((get_display_name(r["ticker"], r["name"]), w, tw))
+            items.append((get_display_name(r["ticker"], r["name"]), w))
     if not items:
-        return
+        return ""
     items.sort(key=lambda x: -x[1])
 
     palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
                "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
 
-    size, r_out, r_in = 180, 80, 48
+    r_out, r_in = size / 2 - 4, size / 2 - 30
+    r_mid = (r_out + r_in) / 2
     cx = cy = size / 2
     segments = ""
-    legend = (
-        '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;font-size:10px;color:#777;">'
-        '<span style="width:10px;flex:0 0 auto;"></span>'
-        '<span style="flex:1 1 auto;min-width:0;">종목</span>'
-        '<span style="flex:0 0 auto;width:42px;text-align:right;">현재</span>'
-        '<span style="flex:0 0 auto;width:42px;text-align:right;">목표</span>'
-        '</div>'
-    )
+    labels = ""
     angle = -90.0
-    for i, (name, w, tw) in enumerate(items):
+    for i, (name, w) in enumerate(items):
         color = palette[i % len(palette)]
         sweep = w / 100 * 360
         a0 = math.radians(angle)
@@ -1920,25 +1914,50 @@ def render_weight_donut(rows, total_eval_amount):
             f'<path d="M {x0o:.2f} {y0o:.2f} A {r_out} {r_out} 0 {large} 1 {x1o:.2f} {y1o:.2f} '
             f'L {x0i:.2f} {y0i:.2f} A {r_in} {r_in} 0 {large} 0 {x1i:.2f} {y1i:.2f} Z" fill="{color}" />'
         )
-        legend += (
-            '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
-            f'<span style="width:10px;height:10px;border-radius:2px;background:{color};display:inline-block;flex:0 0 auto;"></span>'
-            f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</span>'
-            f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;width:42px;text-align:right;">{w:.1f}%</span>'
-            f'<span style="font-size:12px;color:#888;flex:0 0 auto;width:42px;text-align:right;">{tw:.0f}%</span>'
-            '</div>'
-        )
+        # 조각이 충분히 클 때만(8% 이상) 안에 % 라벨 표시
+        if w >= 8:
+            mid_ang = math.radians(angle + sweep / 2)
+            lx = cx + r_mid * math.cos(mid_ang)
+            ly = cy + r_mid * math.sin(mid_ang)
+            labels += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{w:.0f}%</text>'
         angle += sweep
 
-    donut_svg = f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{segments}</svg>'
+    center = f'<text x="{cx}" y="{cy-2}" text-anchor="middle" font-size="12" font-weight="700" fill="#ccc">{len(items)}종목</text>'
+    return f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{segments}{labels}{center}</svg>'
 
-    st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-    st.markdown("<div style='font-size:15px;font-weight:700;margin-bottom:8px;'>종목별 비중 (현재 vs 목표)</div>", unsafe_allow_html=True)
-    dcols = st.columns([1, 1])
-    with dcols[0]:
-        st.markdown(f'<div style="display:flex;justify-content:center;">{donut_svg}</div>', unsafe_allow_html=True)
-    with dcols[1]:
-        st.markdown(f'<div style="padding-top:8px;">{legend}</div>', unsafe_allow_html=True)
+
+def build_weight_legend(rows, total_eval_amount):
+    """도넛 아래에 넣을 범례 HTML (종목 · 현재% · 목표%)."""
+    items = []
+    for r in rows:
+        if r["eval_amount"] and total_eval_amount > 0:
+            w = r["eval_amount"] / total_eval_amount * 100
+            tw = r.get("target_weight", 0.0) or 0.0
+            items.append((get_display_name(r["ticker"], r["name"]), w, tw))
+    if not items:
+        return ""
+    items.sort(key=lambda x: -x[1])
+    palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+               "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
+    legend = (
+        '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;font-size:10px;color:#777;">'
+        '<span style="width:10px;flex:0 0 auto;"></span>'
+        '<span style="flex:1 1 auto;min-width:0;">종목</span>'
+        '<span style="flex:0 0 auto;width:40px;text-align:right;">현재</span>'
+        '<span style="flex:0 0 auto;width:40px;text-align:right;">목표</span>'
+        '</div>'
+    )
+    for i, (name, w, tw) in enumerate(items):
+        color = palette[i % len(palette)]
+        legend += (
+            '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">'
+            f'<span style="width:10px;height:10px;border-radius:2px;background:{color};display:inline-block;flex:0 0 auto;"></span>'
+            f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{name}</span>'
+            f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;width:40px;text-align:right;">{w:.1f}%</span>'
+            f'<span style="font-size:12px;color:#888;flex:0 0 auto;width:40px;text-align:right;">{tw:.0f}%</span>'
+            '</div>'
+        )
+    return legend
 
 
 def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
@@ -2075,18 +2094,33 @@ if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
-    ctrl_cols = st.columns([3, 2])
-    with ctrl_cols[0]:
+
+    # 해외(달러) 종목을 가진 계좌가 하나라도 있는지 확인 → 있을 때만 달러/원화 토글 표시
+    _has_any_usd = any(
+        not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ"))
+        for pname in portfolio_names
+        for h in st.session_state.portfolios[pname]
+    )
+
+    if _has_any_usd:
+        ctrl_cols = st.columns([3, 2])
+        with ctrl_cols[0]:
+            view_mode = st.radio(
+                "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
+                key="view_mode_radio", label_visibility="collapsed"
+            )
+        with ctrl_cols[1]:
+            currency_mode = st.radio(
+                "통화", ["$ 달러", "₩ 원화"], horizontal=True,
+                key="currency_mode_radio", label_visibility="collapsed"
+            )
+        show_krw = (currency_mode == "₩ 원화")
+    else:
         view_mode = st.radio(
             "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
             key="view_mode_radio", label_visibility="collapsed"
         )
-    with ctrl_cols[1]:
-        currency_mode = st.radio(
-            "통화", ["$ 달러", "₩ 원화"], horizontal=True,
-            key="currency_mode_radio", label_visibility="collapsed"
-        )
-    show_krw = (currency_mode == "₩ 원화")
+        show_krw = False
 
     st.caption("합산할 계좌를 선택하세요 (맨 아래에 선택한 계좌들의 총합이 표시됩니다)")
 
@@ -2094,6 +2128,7 @@ else:
     grand_buy_krw = 0.0
     grand_eval_krw = 0.0
     grand_has_any = False
+    grand_accounts = []   # (계좌명, 원화평가액) — 맨 아래 계좌별 비중 도넛용
 
     for p_idx, p_name in enumerate(portfolio_names):
         holdings = st.session_state.portfolios[p_name]
@@ -2113,26 +2148,19 @@ else:
             acct_buy_krw = total_buy_amount
             acct_eval_krw = total_eval_amount
 
-        # 계좌 헤더 + 선택 체크박스
-        head_cols = st.columns([3, 1])
-        with head_cols[0]:
-            selected = st.checkbox(
-                f"**{p_name}**  ({len(holdings)}개 종목)", value=True,
-                key=f"sel_{p_name}"
-            )
-        with head_cols[1]:
-            if total_buy_amount > 0:
-                _tp = total_eval_amount - total_buy_amount
-                _tpp = (_tp / total_buy_amount * 100) if total_buy_amount else 0
-                _c = "#ff4d4d" if _tpp >= 0 else "#4d94ff"
-                st.markdown(f"<div style='text-align:right;font-size:13px;font-weight:700;color:{_c};'>{'▲' if _tpp>=0 else '▼'} {abs(_tpp):.1f}%</div>", unsafe_allow_html=True)
+        # 계좌 헤더 + 선택 체크박스 (오른쪽 구석 수익률 제거)
+        selected = st.checkbox(
+            f"**{p_name}**  ({len(holdings)}개 종목)", value=True,
+            key=f"sel_{p_name}"
+        )
 
         if selected and total_eval_amount > 0:
             grand_buy_krw += acct_buy_krw
             grand_eval_krw += acct_eval_krw
             grand_has_any = True
+            grand_accounts.append((p_name, acct_eval_krw))
 
-        # 요약 지표
+        # 요약 지표 (왼쪽) + 도넛 (오른쪽) 좌우 배치
         if total_buy_amount > 0:
             total_profit = total_eval_amount - total_buy_amount
             total_profit_pct = (total_profit / total_buy_amount) * 100
@@ -2141,9 +2169,9 @@ else:
 
             def metric(label, value_html):
                 return (
-                    '<div style="flex:1 1 130px;min-width:130px;">'
+                    '<div style="flex:1 1 120px;min-width:120px;margin-bottom:8px;">'
                     f'<div style="font-size:11px;color:#888888;">{label}</div>'
-                    f'<div style="font-size:16px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
                     '</div>'
                 )
 
@@ -2156,7 +2184,7 @@ else:
                 profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
 
             metrics_html = (
-                '<div style="display:flex;gap:14px 22px;flex-wrap:wrap;align-items:flex-start;margin-top:2px;">'
+                '<div style="display:flex;gap:8px 18px;flex-wrap:wrap;align-items:flex-start;">'
                 + metric("총 매수금액", buy_txt)
                 + metric("총 평가금액", eval_txt)
                 + metric("평가손익", profit_txt)
@@ -2164,7 +2192,21 @@ else:
                 + (metric("환차손익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
                 + '</div>'
             )
-            st.markdown(metrics_html, unsafe_allow_html=True)
+
+            donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=140)
+            legend_html = build_weight_legend(rows, total_eval_amount)
+
+            # 왼쪽(요약) + 오른쪽(도넛) 한 줄 배치, 좁으면 자동 줄바꿈
+            st.markdown(
+                '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;">'
+                f'<div style="flex:2 1 260px;min-width:220px;">{metrics_html}</div>'
+                f'<div style="flex:1 1 150px;min-width:150px;display:flex;flex-direction:column;align-items:center;">'
+                f'{donut_svg}'
+                f'<div style="width:100%;margin-top:4px;">{legend_html}</div>'
+                '</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
         btn_cols = st.columns([1, 1, 3])
         with btn_cols[0]:
@@ -2188,7 +2230,6 @@ else:
             with st.container(key=f"auto_table_{p_idx}"):
                 render_portfolio_table(p_name, rows, total_eval_amount)
 
-        render_weight_donut(rows, total_eval_amount)
         st.markdown("<div style='height:24px;border-bottom:2px solid #222;margin-bottom:20px;'></div>", unsafe_allow_html=True)
 
     # ===== 선택한 계좌들의 총합산 =====
@@ -2197,14 +2238,61 @@ else:
         g_pct = (g_profit / grand_buy_krw * 100) if grand_buy_krw else 0
         g_color = "#ff4d4d" if g_pct >= 0 else "#4d94ff"
         g_arrow = "▲" if g_pct >= 0 else "▼"
+
+        # 계좌별 비중 도넛 (선택된 계좌들 기준)
+        acct_donut = ""
+        if grand_eval_krw > 0 and len(grand_accounts) >= 1:
+            palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633"]
+            _size = 150
+            _ro, _ri = _size/2 - 4, _size/2 - 30
+            _rm = (_ro + _ri) / 2
+            _cx = _cy = _size / 2
+            segs = ""
+            labs = ""
+            ang = -90.0
+            leg = ""
+            for i, (an, av) in enumerate(sorted(grand_accounts, key=lambda x: -x[1])):
+                col = palette[i % len(palette)]
+                w = av / grand_eval_krw * 100
+                sw = w / 100 * 360
+                a0, a1 = math.radians(ang), math.radians(ang + sw)
+                x0o, y0o = _cx + _ro*math.cos(a0), _cy + _ro*math.sin(a0)
+                x1o, y1o = _cx + _ro*math.cos(a1), _cy + _ro*math.sin(a1)
+                x0i, y0i = _cx + _ri*math.cos(a1), _cy + _ri*math.sin(a1)
+                x1i, y1i = _cx + _ri*math.cos(a0), _cy + _ri*math.sin(a0)
+                lg = 1 if sw > 180 else 0
+                segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
+                if w >= 8:
+                    ma = math.radians(ang + sw/2)
+                    lx, ly = _cx + _rm*math.cos(ma), _cy + _rm*math.sin(ma)
+                    labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{w:.0f}%</text>'
+                leg += (
+                    '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">'
+                    f'<span style="width:10px;height:10px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
+                    f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;">{an}</span>'
+                    f'<span style="font-size:12px;color:#fff;font-weight:700;">{w:.1f}%</span>'
+                    '</div>'
+                )
+                ang += sw
+            acct_donut = (
+                '<div style="flex:1 1 160px;min-width:160px;display:flex;flex-direction:column;align-items:center;">'
+                f'<svg width="{_size}" height="{_size}" viewBox="0 0 {_size} {_size}">{segs}{labs}'
+                f'<text x="{_cx}" y="{_cy-2}" text-anchor="middle" font-size="11" font-weight="700" fill="#ccc">계좌비중</text></svg>'
+                f'<div style="width:100%;margin-top:6px;">{leg}</div>'
+                '</div>'
+            )
+
         st.markdown(
             '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:18px 20px;margin-top:8px;">'
             '<div style="font-size:15px;font-weight:800;color:#4dd2ff;margin-bottom:12px;">선택한 계좌 총 합산 (원화 기준)</div>'
-            '<div style="display:flex;gap:16px 28px;flex-wrap:wrap;">'
-            f'<div style="flex:1 1 140px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_buy_krw:,.0f}원</div></div>'
-            f'<div style="flex:1 1 140px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_eval_krw:,.0f}원</div></div>'
-            f'<div style="flex:1 1 140px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_profit):,.0f}원</div></div>'
-            f'<div style="flex:1 1 140px;"><div style="font-size:11px;color:#888;">총 수익률</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_pct):.1f}%</div></div>'
+            '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;">'
+            '<div style="flex:2 1 260px;"><div style="display:flex;gap:16px 28px;flex-wrap:wrap;">'
+            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_buy_krw:,.0f}원</div></div>'
+            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_eval_krw:,.0f}원</div></div>'
+            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_profit):,.0f}원</div></div>'
+            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 수익률</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_pct):.1f}%</div></div>'
+            '</div></div>'
+            f'{acct_donut}'
             '</div>'
             '<div style="font-size:10px;color:#666;margin-top:10px;">※ 달러 계좌는 현재환율로 원화 환산하여 합산. 국내 계좌는 원화 그대로 합산.</div>'
             '</div>',
