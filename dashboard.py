@@ -2095,32 +2095,10 @@ if not st.session_state.portfolios:
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
 
-    # 해외(달러) 종목을 가진 계좌가 하나라도 있는지 확인 → 있을 때만 달러/원화 토글 표시
-    _has_any_usd = any(
-        not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ"))
-        for pname in portfolio_names
-        for h in st.session_state.portfolios[pname]
+    view_mode = st.radio(
+        "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
+        key="view_mode_radio", label_visibility="collapsed"
     )
-
-    if _has_any_usd:
-        ctrl_cols = st.columns([3, 2])
-        with ctrl_cols[0]:
-            view_mode = st.radio(
-                "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
-                key="view_mode_radio", label_visibility="collapsed"
-            )
-        with ctrl_cols[1]:
-            currency_mode = st.radio(
-                "통화", ["$ 달러", "₩ 원화"], horizontal=True,
-                key="currency_mode_radio", label_visibility="collapsed"
-            )
-        show_krw = (currency_mode == "₩ 원화")
-    else:
-        view_mode = st.radio(
-            "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
-            key="view_mode_radio", label_visibility="collapsed"
-        )
-        show_krw = False
 
     st.caption("합산할 계좌를 선택하세요 (맨 아래에 선택한 계좌들의 총합이 표시됩니다)")
 
@@ -2148,11 +2126,24 @@ else:
             acct_buy_krw = total_buy_amount
             acct_eval_krw = total_eval_amount
 
-        # 계좌 헤더 + 선택 체크박스 (오른쪽 구석 수익률 제거)
+        # 계좌 헤더 + 선택 체크박스
         selected = st.checkbox(
             f"**{p_name}**  ({len(holdings)}개 종목)", value=True,
             key=f"sel_{p_name}"
         )
+
+        # 이 계좌에 해외(달러) 종목이 있으면 계좌별 통화 토글 표시
+        acct_has_usd = any(
+            not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings
+        )
+        if acct_has_usd:
+            cmode = st.radio(
+                "통화", ["$ 달러", "₩ 원화"], horizontal=True,
+                key=f"currency_mode_radio_{p_name}", label_visibility="collapsed"
+            )
+            show_krw = (cmode == "₩ 원화")
+        else:
+            show_krw = False
 
         if selected and total_eval_amount > 0:
             grand_buy_krw += acct_buy_krw
@@ -2160,7 +2151,7 @@ else:
             grand_has_any = True
             grand_accounts.append((p_name, acct_eval_krw))
 
-        # 요약 지표 (왼쪽) + 도넛 (오른쪽) 좌우 배치
+        # 요약 지표 (2×2, 왼쪽) + 도넛 (오른쪽) 컴팩트 배치
         if total_buy_amount > 0:
             total_profit = total_eval_amount - total_buy_amount
             total_profit_pct = (total_profit / total_buy_amount) * 100
@@ -2169,9 +2160,9 @@ else:
 
             def metric(label, value_html):
                 return (
-                    '<div style="flex:1 1 120px;min-width:120px;margin-bottom:8px;">'
+                    '<div style="min-width:0;">'
                     f'<div style="font-size:11px;color:#888888;">{label}</div>'
-                    f'<div style="font-size:15px;font-weight:700;color:#ffffff;white-space:nowrap;">{value_html}</div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{value_html}</div>'
                     '</div>'
                 )
 
@@ -2183,30 +2174,34 @@ else:
             else:
                 profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
 
-            metrics_html = (
-                '<div style="display:flex;gap:8px 18px;flex-wrap:wrap;align-items:flex-start;">'
+            # 2열 그리드: 총매수/총평가 윗줄, 손익/수익률 아랫줄
+            grid = (
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;">'
                 + metric("총 매수금액", buy_txt)
                 + metric("총 평가금액", eval_txt)
                 + metric("평가손익", profit_txt)
                 + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
-                + (metric("환차손익", f'<span style="color:{"#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"};">{"▲" if fx_summary["fx_gain"] >= 0 else "▼"} {abs(fx_summary["fx_gain"]):,.0f}원</span>') if has_fx else "")
                 + '</div>'
             )
+            fx_line = ""
+            if has_fx:
+                fx_c = "#ff4d4d" if fx_summary["fx_gain"] >= 0 else "#4d94ff"
+                fx_a = "▲" if fx_summary["fx_gain"] >= 0 else "▼"
+                fx_line = f'<div style="font-size:11px;color:#888;margin-top:6px;">환차손익 <span style="color:{fx_c};font-weight:700;">{fx_a} {abs(fx_summary["fx_gain"]):,.0f}원</span></div>'
 
-            donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=140)
-            legend_html = build_weight_legend(rows, total_eval_amount)
+            donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=120)
 
-            # 왼쪽(요약) + 오른쪽(도넛) 한 줄 배치, 좁으면 자동 줄바꿈
+            # 왼쪽(2×2 요약) + 오른쪽(도넛) 한 칸에
             st.markdown(
-                '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;">'
-                f'<div style="flex:2 1 260px;min-width:220px;">{metrics_html}</div>'
-                f'<div style="flex:1 1 150px;min-width:150px;display:flex;flex-direction:column;align-items:center;">'
-                f'{donut_svg}'
-                f'<div style="width:100%;margin-top:4px;">{legend_html}</div>'
-                '</div>'
+                '<div style="display:flex;gap:14px;align-items:center;flex-wrap:nowrap;">'
+                f'<div style="flex:1 1 auto;min-width:0;">{grid}{fx_line}</div>'
+                f'<div style="flex:0 0 auto;">{donut_svg}</div>'
                 '</div>',
                 unsafe_allow_html=True
             )
+            # 도넛 범례는 접이식으로 (공간 절약)
+            with st.expander("종목별 비중 상세 (현재 / 목표)"):
+                st.markdown(build_weight_legend(rows, total_eval_amount), unsafe_allow_html=True)
 
         btn_cols = st.columns([1, 1, 3])
         with btn_cols[0]:
