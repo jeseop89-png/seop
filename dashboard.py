@@ -102,7 +102,70 @@ PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portf
 WATCHLIST_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "watchlist_data.json")
 
 
+# ==========================================
+# 💾 구글 시트 저장소 (재배포/재시작해도 데이터 유지)
+#   -> Streamlit Cloud는 로컬 파일이 재배포마다 초기화되므로,
+#      구글 시트를 DB처럼 써서 포트폴리오를 영구 보존.
+#      st.secrets에 gcp_service_account + gsheet_id 가 있으면 시트 사용,
+#      없으면 기존처럼 로컬 파일 사용 (로컬 개발 환경 대비).
+# ==========================================
+@st.cache_resource
+def _get_gsheet():
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        sa_info = st.secrets.get("gcp_service_account")
+        sheet_id = st.secrets.get("gsheet_id")
+        if not sa_info or not sheet_id:
+            return None
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(dict(sa_info), scopes=scopes)
+        gc = gspread.authorize(creds)
+        return gc.open_by_key(sheet_id)
+    except Exception:
+        return None
+
+
+def _gsheet_read(tab_name):
+    """구글 시트의 특정 탭 A1 셀에 통째로 저장된 JSON 문자열을 읽어 파싱."""
+    try:
+        sh = _get_gsheet()
+        if not sh:
+            return None
+        try:
+            ws = sh.worksheet(tab_name)
+        except Exception:
+            return None
+        raw = ws.acell("A1").value
+        if not raw:
+            return None
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def _gsheet_write(tab_name, data):
+    """데이터를 JSON 문자열로 직렬화해 구글 시트 탭 A1 셀에 저장."""
+    try:
+        sh = _get_gsheet()
+        if not sh:
+            return False
+        try:
+            ws = sh.worksheet(tab_name)
+        except Exception:
+            ws = sh.add_worksheet(title=tab_name, rows=1, cols=1)
+        ws.update_acell("A1", json.dumps(data, ensure_ascii=False))
+        return True
+    except Exception:
+        return False
+
+
 def load_portfolios():
+    # 1순위: 구글 시트
+    gs = _gsheet_read("portfolios")
+    if gs is not None:
+        return gs
+    # 2순위: 로컬 파일
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r", encoding="utf-8") as f:
@@ -113,11 +176,15 @@ def load_portfolios():
 
 
 def save_portfolios():
+    data = st.session_state.portfolios
+    # 구글 시트에 저장 (성공하면 여기서 영구 보존됨)
+    _gsheet_write("portfolios", data)
+    # 로컬에도 백업 저장
     try:
         with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
-            json.dump(st.session_state.portfolios, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        st.error(f"저장 중 오류가 발생했습니다: {e}")
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def load_watchlist():
@@ -929,6 +996,31 @@ def render_market_overview():
     row3 = '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">' + "".join(row3_cells) + '</div>'
     st.markdown(row3, unsafe_allow_html=True)
 
+    # 글로벌 M2 큰 추세 차트 (블룸버그 스타일, 접이식)
+    if m2 and m2.get("trend") and len(m2["trend"]) >= 2:
+        with st.expander("📈 글로벌 M2 추세 차트 (최근 24개월)"):
+            trend = m2["trend"]
+            big = make_sparkline_svg(trend, width=340, height=120,
+                                     color="#4dd2ff" if (m2.get("yoy") or 0) >= 0 else "#ff6f4d")
+            first_v, last_v = trend[0], trend[-1]
+            chg = ((last_v - first_v) / first_v * 100) if first_v else 0
+            chg_color = "#ff4d4d" if chg >= 0 else "#4d94ff"
+            st.markdown(
+                '<div style="background:#0d0d0d;border-radius:10px;padding:14px 16px;">'
+                '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
+                f'<span style="font-size:14px;font-weight:700;color:#fff;">글로벌 M2 통화량</span>'
+                f'<span style="font-size:18px;font-weight:800;color:#fff;">${last_v:,.1f}T</span>'
+                '</div>'
+                f'<div style="height:120px;">{big}</div>'
+                '<div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:6px;">'
+                f'<span>24개월 전 ${first_v:,.1f}T</span>'
+                f'<span style="color:{chg_color};font-weight:700;">24개월 {"▲" if chg>=0 else "▼"} {abs(chg):.1f}%</span>'
+                '</div>'
+                '<div style="font-size:10px;color:#666;margin-top:8px;">※ 미국 M2 + 유로존 M2 합산 (FRED). M2 통화량은 비트코인·위험자산 흐름의 선행 지표로 활용됨.</div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+
 
 render_market_overview()
 
@@ -1040,9 +1132,12 @@ def fmt_krw(value):
 
 
 def combine_currency(usd_html, krw_txt):
-    """주(달러) 값 옆에 원화 환산값을 괄호로 붙여줌. 달러와 같은 크기로 표시.
-    예: '95.12$ (145,000원)'"""
-    return f'{usd_html} <span style="color:#c8c8c8;">({krw_txt})</span>'
+    """통화 토글에 따라 달러 또는 원화 하나만 표시.
+    '$ 달러' 모드면 달러만, '₩ 원화' 모드면 원화만 보여줌 (둘 다 표시 안 함 → 깔끔)."""
+    show_krw = st.session_state.get("currency_mode_radio", "$ 달러") == "₩ 원화"
+    if show_krw:
+        return f'<span>{krw_txt}</span>'
+    return usd_html
 
 
 @st.cache_data(ttl=3600)
@@ -1291,13 +1386,16 @@ def create_portfolio_dialog():
 
 @st.dialog("종목 추가")
 def add_stock_dialog(portfolio_name):
-    query = st.text_input("종목명 또는 티커 검색", placeholder="예: 삼성전자, AAPL, 엔비디아")
+    st.caption("💡 종목명/티커 입력 후 Enter를 누르면 검색됩니다")
+    query = st.text_input("종목명 또는 티커 검색", placeholder="예: 삼성전자, AAPL, 엔비디아",
+                          key=f"search_q_{portfolio_name}")
 
     selected_symbol = None
     selected_name = None
 
-    if query:
-        results = search_stock(query)
+    if query and len(query.strip()) >= 1:
+        with st.spinner("검색 중..."):
+            results = search_stock(query.strip())
         if results:
             option_labels = [f"{r['name']} ({r['symbol']})" for r in results]
             picked = st.selectbox("검색결과에서 선택", option_labels)
@@ -1306,7 +1404,6 @@ def add_stock_dialog(portfolio_name):
             selected_name = results[picked_idx]["name"]
         else:
             st.info("검색 결과가 없습니다. 정확한 티커(예: AAPL, 005930.KS)를 입력해보세요.")
-            # 직접 티커 입력 fallback
             manual_ticker = st.text_input("직접 티커 입력 (검색 결과가 없을 때)")
             if manual_ticker:
                 selected_symbol = manual_ticker.strip().upper()
@@ -1879,10 +1976,11 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             cur_txt = combine_currency(fmt_money(r['current_price'], is_usd, decimals=2), f"{r['current_price'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['current_price'], is_usd, decimals=2)
             eval_txt = combine_currency(fmt_money(r['eval_amount'], is_usd), f"{r['eval_amount'] * cur_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['eval_amount'], is_usd)
             buy_amt_txt = combine_currency(fmt_money(r['buy_amount'], is_usd), f"{r['buy_amount'] * buy_fx:,.0f}원") if (is_usd and cur_fx) else fmt_money(r['buy_amount'], is_usd)
-            # 수익(평가손익): 원화는 주가 손익만 현재환율로 환산. 달러·원화 같은 색·같은 크기.
-            if is_usd and cur_fx:
+            # 수익(평가손익): 통화 토글에 따라 달러 또는 원화만 표시
+            _show_krw = st.session_state.get("currency_mode_radio", "$ 달러") == "₩ 원화"
+            if is_usd and cur_fx and _show_krw:
                 profit_krw = profit_amount * cur_fx
-                profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_krw):,.0f}원) ({abs(profit_pct):.1f}%)</span>'
+                profit_val = f'<span style="color:{color};">{arrow} {abs(profit_krw):,.0f}원 ({abs(profit_pct):.1f}%)</span>'
             else:
                 profit_val = f'<span style="color:{color};">{arrow} {fmt_money(abs(profit_amount), is_usd)} ({abs(profit_pct):.1f}%)</span>'
 
@@ -1899,9 +1997,10 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
             shortfall = target_amount - r["eval_amount"]
 
             def _adj_txt(amount, color_hex, word):
-                base = f'{word} {fmt_money(amount, is_usd)}'
-                if is_usd and cur_fx:
-                    base += f' ({amount * cur_fx:,.0f}원)'
+                if is_usd and cur_fx and _show_krw:
+                    base = f'{word} {amount * cur_fx:,.0f}원'
+                else:
+                    base = f'{word} {fmt_money(amount, is_usd)}'
                 return f'<span style="color:{color_hex};">{base}</span>'
 
             if shortfall > 0:
@@ -1958,10 +2057,18 @@ if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
-    view_mode = st.radio(
-        "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
-        key="view_mode_radio", label_visibility="collapsed"
-    )
+    ctrl_cols = st.columns([3, 2])
+    with ctrl_cols[0]:
+        view_mode = st.radio(
+            "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
+            key="view_mode_radio", label_visibility="collapsed"
+        )
+    with ctrl_cols[1]:
+        currency_mode = st.radio(
+            "통화", ["$ 달러", "₩ 원화"], horizontal=True,
+            key="currency_mode_radio", label_visibility="collapsed"
+        )
+    show_krw = (currency_mode == "₩ 원화")
     tabs = st.tabs([f"　{name}　" for name in portfolio_names])
 
     for p_idx, (p_name, tab) in enumerate(zip(portfolio_names, tabs)):
@@ -1992,11 +2099,12 @@ else:
 
                 buy_txt = combine_currency(fmt_money(total_buy_amount, port_is_usd), f"{fx_summary['buy_krw']:,.0f}원") if has_fx else fmt_money(total_buy_amount, port_is_usd)
                 eval_txt = combine_currency(fmt_money(total_eval_amount, port_is_usd), f"{fx_summary['eval_krw']:,.0f}원") if has_fx else fmt_money(total_eval_amount, port_is_usd)
-                profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
-                if has_fx:
-                    # 평가손익의 원화 표기는 "주가 손익만" 현재환율로 환산 (환차익은 별도 항목에서)
+                _show_krw_sum = st.session_state.get("currency_mode_radio", "$ 달러") == "₩ 원화"
+                if has_fx and _show_krw_sum:
                     stock_gain_krw = total_profit * fx_summary["cur_fx"]
-                    profit_txt += f' <span style="color:{color};font-size:0.9em;">({abs(stock_gain_krw):,.0f}원)</span>'
+                    profit_txt = f'<span style="color:{color};">{arrow} {abs(stock_gain_krw):,.0f}원</span>'
+                else:
+                    profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
 
                 metrics_html = (
                     '<div style="display:flex;gap:18px 26px;flex-wrap:wrap;align-items:flex-start;">'
