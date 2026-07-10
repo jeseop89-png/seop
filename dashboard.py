@@ -2147,11 +2147,15 @@ else:
             acct_buy_krw = total_buy_amount
             acct_eval_krw = total_eval_amount
 
-        # 계좌 헤더 + 선택 체크박스
-        selected = st.checkbox(
-            f"**{p_name}**  ({len(holdings)}개 종목)", value=True,
-            key=f"sel_{p_name}"
-        )
+        # 계좌 헤더: 합산선택 체크박스 + 접기/펴기 토글
+        head_cols = st.columns([3, 1])
+        with head_cols[0]:
+            selected = st.checkbox(
+                f"**{p_name}**  ({len(holdings)}개 종목)", value=True,
+                key=f"sel_{p_name}", help="체크하면 맨 아래 총합산에 포함됩니다"
+            )
+        with head_cols[1]:
+            expanded_acct = st.toggle("펼치기", value=True, key=f"exp_{p_name}")
 
         # 이 계좌에 해외(달러) 종목이 있으면 계좌별 통화 토글 표시
         acct_has_usd = any(
@@ -2181,7 +2185,12 @@ else:
                     _nm = get_display_name(_r["ticker"], _r["name"])
                     grand_holdings.append((_nm, _ev_krw))
 
-        # 요약 지표 (2×2, 왼쪽) — 도넛은 접기 안으로 이동
+        # 계좌가 펼쳐진 경우에만 요약+종목+도넛 렌더
+        if not expanded_acct:
+            st.markdown("<div style='height:16px;border-bottom:2px solid #222;margin-bottom:16px;'></div>", unsafe_allow_html=True)
+            continue
+
+        # 요약 지표 (2×2)
         if total_buy_amount > 0:
             total_profit = total_eval_amount - total_buy_amount
             total_profit_pct = (total_profit / total_buy_amount) * 100
@@ -2220,33 +2229,34 @@ else:
 
             st.markdown(f'<div>{grid}{fx_line}</div>', unsafe_allow_html=True)
 
-        # 계좌 상세(종목 리스트 + 도넛)를 접기/펴기
-        with st.expander("종목 상세 보기 / 접기", expanded=True):
-            btn_cols = st.columns([1, 1, 3])
-            with btn_cols[0]:
-                if st.button("종목 추가", key=f"add_{p_name}", use_container_width=True):
-                    add_stock_dialog(p_name)
-            with btn_cols[1]:
-                if st.button("계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
-                    del st.session_state.portfolios[p_name]
-                    save_portfolios()
-                    st.rerun()
+        # 종목 추가/삭제 버튼
+        btn_cols = st.columns([1, 1, 3])
+        with btn_cols[0]:
+            if st.button("종목 추가", key=f"add_{p_name}", use_container_width=True):
+                add_stock_dialog(p_name)
+        with btn_cols[1]:
+            if st.button("계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
+                del st.session_state.portfolios[p_name]
+                save_portfolios()
+                st.rerun()
 
-            st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-            if view_mode == "카드형":
+        st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
+
+        # 종목 리스트 (바로 보임)
+        if view_mode == "카드형":
+            render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+        elif view_mode == "테이블형":
+            with st.container(key=f"pc_table_{p_idx}"):
+                render_portfolio_table(p_name, rows, total_eval_amount)
+        else:
+            with st.container(key=f"auto_card_{p_idx}"):
                 render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
-            elif view_mode == "테이블형":
-                with st.container(key=f"pc_table_{p_idx}"):
-                    render_portfolio_table(p_name, rows, total_eval_amount)
-            else:
-                with st.container(key=f"auto_card_{p_idx}"):
-                    render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
-                with st.container(key=f"auto_table_{p_idx}"):
-                    render_portfolio_table(p_name, rows, total_eval_amount)
+            with st.container(key=f"auto_table_{p_idx}"):
+                render_portfolio_table(p_name, rows, total_eval_amount)
 
-            # 종목별 비중 도넛 + 범례 (접기 안)
-            if total_eval_amount > 0:
-                st.markdown("<div style='margin-top:12px;font-size:13px;font-weight:700;color:#ccc;'>종목별 비중</div>", unsafe_allow_html=True)
+        # 도넛+비중만 별도 접기
+        if total_eval_amount > 0:
+            with st.expander("📊 종목별 비중 (도넛 차트)"):
                 donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=140)
                 st.markdown(f'<div style="display:flex;justify-content:center;margin:8px 0;">{donut_svg}</div>', unsafe_allow_html=True)
                 st.markdown(build_weight_legend(rows, total_eval_amount), unsafe_allow_html=True)
