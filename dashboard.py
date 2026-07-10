@@ -1499,6 +1499,8 @@ def compute_portfolio_rows(holdings):
     usd_eval_krw_total = 0.0
     usd_fx_gain_total = 0.0
     has_usd_fx_data = False
+    krw_buy_total = 0.0   # 국내(원화) 종목 매수 합계
+    krw_eval_total = 0.0  # 국내(원화) 종목 평가 합계
 
     for h in holdings:
         current_price = get_current_price(h["ticker"])
@@ -1518,6 +1520,11 @@ def compute_portfolio_rows(holdings):
             usd_buy_krw_total += buy_amount * effective_buy_fx
             usd_eval_krw_total += eval_amount * cur_fx
             usd_fx_gain_total += h["qty"] * h["avg_price"] * (cur_fx - effective_buy_fx)
+        elif not is_usd:
+            # 국내 종목: 원화 그대로 계좌 원화 합계에 더함
+            krw_buy_total += buy_amount
+            if eval_amount is not None:
+                krw_eval_total += eval_amount
 
         # 52주 신고가 (신고가 대비 하락률 표시용)
         high_52w = None
@@ -1543,6 +1550,9 @@ def compute_portfolio_rows(holdings):
         "eval_krw": usd_eval_krw_total,
         "fx_gain": usd_fx_gain_total,
         "cur_fx": cur_fx,
+        # 계좌 전체 원화 합계 (해외 환산분 + 국내 원화분) — 합산에 사용
+        "total_buy_krw": usd_buy_krw_total + krw_buy_total,
+        "total_eval_krw": usd_eval_krw_total + krw_eval_total,
     }
     return rows, total_buy_amount, total_eval_amount, fx_summary
 
@@ -2133,9 +2143,10 @@ else:
         port_is_usd = any(not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings)
         has_fx = fx_summary["has_data"] and fx_summary["cur_fx"]
         cur_fx_now = fx_summary["cur_fx"] or get_usd_krw_rate() or 1350.0
-        if port_is_usd and has_fx:
-            acct_buy_krw = fx_summary["buy_krw"]
-            acct_eval_krw = fx_summary["eval_krw"]
+        if has_fx:
+            # 해외+국내 섞인 계좌도 전체 원화로 정확히 합산
+            acct_buy_krw = fx_summary["total_buy_krw"]
+            acct_eval_krw = fx_summary["total_eval_krw"]
         else:
             acct_buy_krw = total_buy_amount
             acct_eval_krw = total_eval_amount
@@ -2158,69 +2169,21 @@ else:
             acct_buy_krw=acct_buy_krw, acct_eval_krw=acct_eval_krw,
         )
 
-    # ===== 2단계: 총합산 메인 카드 (맨 위) =====
+    # ===== 2단계: 총합산 메인 카드 (맨 위) — 숫자만, 도넛 제거 =====
     if grand_has_any:
         g_profit = grand_eval_krw - grand_buy_krw
         g_pct = (g_profit / grand_buy_krw * 100) if grand_buy_krw else 0
         g_color = "#ff4d4d" if g_pct >= 0 else "#4d94ff"
         g_arrow = "▲" if g_pct >= 0 else "▼"
 
-        merged = {}
-        for nm, ev in grand_holdings:
-            merged[nm] = merged.get(nm, 0.0) + ev
-        holdings_list = sorted(merged.items(), key=lambda x: -x[1])
-        acct_donut = ""
-        if grand_eval_krw > 0 and holdings_list:
-            palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
-                       "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
-            _size = 150
-            _ro, _ri = _size/2 - 4, _size/2 - 30
-            _rm = (_ro + _ri) / 2
-            _cx = _cy = _size / 2
-            segs = labs = leg = ""
-            ang = -90.0
-            _tot = sum(v for _, v in holdings_list)
-            for i, (an, av) in enumerate(holdings_list):
-                col = palette[i % len(palette)]
-                w = av / _tot * 100
-                sw = w / 100 * 360
-                a0, a1 = math.radians(ang), math.radians(ang + sw)
-                x0o, y0o = _cx + _ro*math.cos(a0), _cy + _ro*math.sin(a0)
-                x1o, y1o = _cx + _ro*math.cos(a1), _cy + _ro*math.sin(a1)
-                x0i, y0i = _cx + _ri*math.cos(a1), _cy + _ri*math.sin(a1)
-                x1i, y1i = _cx + _ri*math.cos(a0), _cy + _ri*math.sin(a0)
-                lg = 1 if sw > 180 else 0
-                segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
-                if w >= 8:
-                    ma = math.radians(ang + sw/2)
-                    lx, ly = _cx + _rm*math.cos(ma), _cy + _rm*math.sin(ma)
-                    labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{w:.0f}%</text>'
-                leg += (
-                    '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">'
-                    f'<span style="width:10px;height:10px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
-                    f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{an}</span>'
-                    f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;">{w:.1f}%</span>'
-                    '</div>'
-                )
-                ang += sw
-            acct_donut = (
-                '<div style="flex:1 1 160px;min-width:160px;display:flex;flex-direction:column;align-items:center;">'
-                f'<svg width="{_size}" height="{_size}" viewBox="0 0 {_size} {_size}">{segs}{labs}'
-                f'<text x="{_cx}" y="{_cy-2}" text-anchor="middle" font-size="11" font-weight="700" fill="#ccc">종목비중</text></svg>'
-                f'<div style="width:100%;margin-top:6px;">{leg}</div>'
-                '</div>'
-            )
         st.markdown(
             '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:18px 20px;margin-bottom:16px;">'
             '<div style="font-size:15px;font-weight:800;color:#4dd2ff;margin-bottom:12px;">📊 선택 계좌 총 합산 (원화 기준)</div>'
-            '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start;">'
-            '<div style="flex:2 1 260px;"><div style="display:flex;gap:16px 28px;flex-wrap:wrap;">'
+            '<div style="display:flex;gap:16px 28px;flex-wrap:wrap;">'
             f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_buy_krw:,.0f}원</div></div>'
             f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:20px;font-weight:800;color:#fff;">{grand_eval_krw:,.0f}원</div></div>'
             f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_profit):,.0f}원</div></div>'
             f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익률</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_pct):.1f}%</div></div>'
-            '</div></div>'
-            f'{acct_donut}'
             '</div></div>',
             unsafe_allow_html=True
         )
@@ -2247,10 +2210,10 @@ else:
         else:
             summary_line = '<span style="color:#666;">종목 없음</span>'
 
-        head_cols = st.columns([0.5, 3.5, 1])
+        head_cols = st.columns([0.8, 3.2, 1])
         with head_cols[0]:
             st.checkbox("합산", value=st.session_state.get(f"sel_{p_name}", True),
-                        key=f"sel_{p_name}", label_visibility="collapsed")
+                        key=f"sel_{p_name}", help="체크한 계좌만 맨 위 총합산에 포함됩니다")
         with head_cols[1]:
             st.markdown(
                 f'<div style="padding-top:4px;"><span style="font-size:15px;font-weight:800;color:#fff;">{p_name}</span> '
@@ -2258,7 +2221,7 @@ else:
                 unsafe_allow_html=True
             )
         with head_cols[2]:
-            expanded_acct = st.toggle("상세", value=False, key=f"exp_{p_name}")
+            expanded_acct = st.toggle("상세보기", value=False, key=f"exp_{p_name}", help="켜면 이 계좌의 종목·차트가 펼쳐집니다")
 
         if expanded_acct:
             acct_has_usd = any(not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings)
