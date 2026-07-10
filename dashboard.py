@@ -2045,8 +2045,28 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
 
             weight_html = f'{current_weight:.0f}% <span style="color:#888;font-size:12px;">/ 목표 {target_weight:.0f}%</span>'
 
-            left_col = kv("RSI (신호)", rsi_html) + kv("현재가", cur_txt) + kv("수익금", profit_money_html) + kv("비중 / 목표", weight_html)
-            right_col = kv("52주고점대비", drop_html) + kv("평단가", avg_txt) + kv("수익률", profit_pct_html) + kv("조정필요", adjust_val)
+            # 매수금 / 평가금 (통화 토글 반영)
+            if is_usd and cur_fx and _show_krw:
+                buy_amt_txt = f'{r["buy_amount"] * (buy_fx or cur_fx):,.0f}원'
+                eval_amt_txt = f'{r["eval_amount"] * cur_fx:,.0f}원'
+            else:
+                buy_amt_txt = fmt_money(r["buy_amount"], is_usd)
+                eval_amt_txt = fmt_money(r["eval_amount"], is_usd)
+
+            left_col = (
+                kv("RSI (신호)", rsi_html)
+                + kv("현재가", cur_txt)
+                + kv("매수금", buy_amt_txt)
+                + kv("수익금", profit_money_html)
+                + kv("비중 / 목표", weight_html)
+            )
+            right_col = (
+                kv("52주고점대비", drop_html)
+                + kv("평단가", avg_txt)
+                + kv("평가금", eval_amt_txt)
+                + kv("손익률", profit_pct_html)
+                + kv("조정필요", adjust_val)
+            )
         else:
             left_col = kv("RSI (신호)", rsi_html) + kv("현재가", "⏳") + kv("평단가", avg_txt)
             right_col = kv("52주고점대비", drop_html) + kv("비중", f'목표 {target_weight:.0f}%')
@@ -2106,7 +2126,8 @@ else:
     grand_buy_krw = 0.0
     grand_eval_krw = 0.0
     grand_has_any = False
-    grand_accounts = []   # (계좌명, 원화평가액) — 맨 아래 계좌별 비중 도넛용
+    grand_accounts = []   # (계좌명, 원화평가액)
+    grand_holdings = []   # (종목명, 원화평가액) — 맨 아래 종목별 비중 도넛용
 
     for p_idx, p_name in enumerate(portfolio_names):
         holdings = st.session_state.portfolios[p_name]
@@ -2144,14 +2165,23 @@ else:
             show_krw = (cmode == "₩ 원화")
         else:
             show_krw = False
+        # 카드/combine_currency가 참조하는 전역 통화 키를 이 계좌 선택값으로 동기화
+        st.session_state["currency_mode_radio"] = "₩ 원화" if show_krw else "$ 달러"
 
         if selected and total_eval_amount > 0:
             grand_buy_krw += acct_buy_krw
             grand_eval_krw += acct_eval_krw
             grand_has_any = True
             grand_accounts.append((p_name, acct_eval_krw))
+            # 종목별(원화 평가액) 누적 — 맨 아래 종목별 비중 도넛용
+            for _r in rows:
+                if _r.get("eval_amount"):
+                    _is_usd = not (_r["ticker"].endswith(".KS") or _r["ticker"].endswith(".KQ"))
+                    _ev_krw = _r["eval_amount"] * cur_fx_now if _is_usd else _r["eval_amount"]
+                    _nm = get_display_name(_r["ticker"], _r["name"])
+                    grand_holdings.append((_nm, _ev_krw))
 
-        # 요약 지표 (2×2, 왼쪽) + 도넛 (오른쪽) 컴팩트 배치
+        # 요약 지표 (2×2, 왼쪽) — 도넛은 접기 안으로 이동
         if total_buy_amount > 0:
             total_profit = total_eval_amount - total_buy_amount
             total_profit_pct = (total_profit / total_buy_amount) * 100
@@ -2174,13 +2204,12 @@ else:
             else:
                 profit_txt = f'<span style="color:{color};">{arrow} {fmt_money(abs(total_profit), port_is_usd)}</span>'
 
-            # 2열 그리드: 총매수/총평가 윗줄, 손익/수익률 아랫줄
             grid = (
                 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;">'
                 + metric("총 매수금액", buy_txt)
                 + metric("총 평가금액", eval_txt)
                 + metric("평가손익", profit_txt)
-                + metric("수익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
+                + metric("손익률", f'<span style="color:{color};">{arrow} {abs(total_profit_pct):.1f}%</span>')
                 + '</div>'
             )
             fx_line = ""
@@ -2189,41 +2218,38 @@ else:
                 fx_a = "▲" if fx_summary["fx_gain"] >= 0 else "▼"
                 fx_line = f'<div style="font-size:11px;color:#888;margin-top:6px;">환차손익 <span style="color:{fx_c};font-weight:700;">{fx_a} {abs(fx_summary["fx_gain"]):,.0f}원</span></div>'
 
-            donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=120)
+            st.markdown(f'<div>{grid}{fx_line}</div>', unsafe_allow_html=True)
 
-            # 왼쪽(2×2 요약) + 오른쪽(도넛) 한 칸에
-            st.markdown(
-                '<div style="display:flex;gap:14px;align-items:center;flex-wrap:nowrap;">'
-                f'<div style="flex:1 1 auto;min-width:0;">{grid}{fx_line}</div>'
-                f'<div style="flex:0 0 auto;">{donut_svg}</div>'
-                '</div>',
-                unsafe_allow_html=True
-            )
-            # 도넛 범례는 접이식으로 (공간 절약)
-            with st.expander("종목별 비중 상세 (현재 / 목표)"):
-                st.markdown(build_weight_legend(rows, total_eval_amount), unsafe_allow_html=True)
+        # 계좌 상세(종목 리스트 + 도넛)를 접기/펴기
+        with st.expander("종목 상세 보기 / 접기", expanded=True):
+            btn_cols = st.columns([1, 1, 3])
+            with btn_cols[0]:
+                if st.button("종목 추가", key=f"add_{p_name}", use_container_width=True):
+                    add_stock_dialog(p_name)
+            with btn_cols[1]:
+                if st.button("계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
+                    del st.session_state.portfolios[p_name]
+                    save_portfolios()
+                    st.rerun()
 
-        btn_cols = st.columns([1, 1, 3])
-        with btn_cols[0]:
-            if st.button("종목 추가", key=f"add_{p_name}", use_container_width=True):
-                add_stock_dialog(p_name)
-        with btn_cols[1]:
-            if st.button("계좌 삭제", key=f"delp_{p_name}", use_container_width=True):
-                del st.session_state.portfolios[p_name]
-                save_portfolios()
-                st.rerun()
-
-        st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
-        if view_mode == "카드형":
-            render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
-        elif view_mode == "테이블형":
-            with st.container(key=f"pc_table_{p_idx}"):
-                render_portfolio_table(p_name, rows, total_eval_amount)
-        else:
-            with st.container(key=f"auto_card_{p_idx}"):
+            st.markdown("<hr style='border-color:#222222; margin-top:8px; margin-bottom:8px;'>", unsafe_allow_html=True)
+            if view_mode == "카드형":
                 render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
-            with st.container(key=f"auto_table_{p_idx}"):
-                render_portfolio_table(p_name, rows, total_eval_amount)
+            elif view_mode == "테이블형":
+                with st.container(key=f"pc_table_{p_idx}"):
+                    render_portfolio_table(p_name, rows, total_eval_amount)
+            else:
+                with st.container(key=f"auto_card_{p_idx}"):
+                    render_portfolio_cards_mobile(p_name, rows, total_eval_amount)
+                with st.container(key=f"auto_table_{p_idx}"):
+                    render_portfolio_table(p_name, rows, total_eval_amount)
+
+            # 종목별 비중 도넛 + 범례 (접기 안)
+            if total_eval_amount > 0:
+                st.markdown("<div style='margin-top:12px;font-size:13px;font-weight:700;color:#ccc;'>종목별 비중</div>", unsafe_allow_html=True)
+                donut_svg = build_weight_donut_svg(rows, total_eval_amount, size=140)
+                st.markdown(f'<div style="display:flex;justify-content:center;margin:8px 0;">{donut_svg}</div>', unsafe_allow_html=True)
+                st.markdown(build_weight_legend(rows, total_eval_amount), unsafe_allow_html=True)
 
         st.markdown("<div style='height:24px;border-bottom:2px solid #222;margin-bottom:20px;'></div>", unsafe_allow_html=True)
 
@@ -2234,10 +2260,16 @@ else:
         g_color = "#ff4d4d" if g_pct >= 0 else "#4d94ff"
         g_arrow = "▲" if g_pct >= 0 else "▼"
 
-        # 계좌별 비중 도넛 (선택된 계좌들 기준)
+        # 종목별 비중 도넛 (선택된 계좌들의 모든 종목 합산 기준)
         acct_donut = ""
-        if grand_eval_krw > 0 and len(grand_accounts) >= 1:
-            palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633"]
+        # 같은 종목명은 합쳐서 하나로
+        merged = {}
+        for nm, ev in grand_holdings:
+            merged[nm] = merged.get(nm, 0.0) + ev
+        holdings_list = sorted(merged.items(), key=lambda x: -x[1])
+        if grand_eval_krw > 0 and len(holdings_list) >= 1:
+            palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+                       "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
             _size = 150
             _ro, _ri = _size/2 - 4, _size/2 - 30
             _rm = (_ro + _ri) / 2
@@ -2246,9 +2278,10 @@ else:
             labs = ""
             ang = -90.0
             leg = ""
-            for i, (an, av) in enumerate(sorted(grand_accounts, key=lambda x: -x[1])):
+            _tot = sum(v for _, v in holdings_list)
+            for i, (an, av) in enumerate(holdings_list):
                 col = palette[i % len(palette)]
-                w = av / grand_eval_krw * 100
+                w = av / _tot * 100
                 sw = w / 100 * 360
                 a0, a1 = math.radians(ang), math.radians(ang + sw)
                 x0o, y0o = _cx + _ro*math.cos(a0), _cy + _ro*math.sin(a0)
@@ -2264,15 +2297,15 @@ else:
                 leg += (
                     '<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">'
                     f'<span style="width:10px;height:10px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
-                    f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;">{an}</span>'
-                    f'<span style="font-size:12px;color:#fff;font-weight:700;">{w:.1f}%</span>'
+                    f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{an}</span>'
+                    f'<span style="font-size:12px;color:#fff;font-weight:700;flex:0 0 auto;">{w:.1f}%</span>'
                     '</div>'
                 )
                 ang += sw
             acct_donut = (
                 '<div style="flex:1 1 160px;min-width:160px;display:flex;flex-direction:column;align-items:center;">'
                 f'<svg width="{_size}" height="{_size}" viewBox="0 0 {_size} {_size}">{segs}{labs}'
-                f'<text x="{_cx}" y="{_cy-2}" text-anchor="middle" font-size="11" font-weight="700" fill="#ccc">계좌비중</text></svg>'
+                f'<text x="{_cx}" y="{_cy-2}" text-anchor="middle" font-size="11" font-weight="700" fill="#ccc">종목비중</text></svg>'
                 f'<div style="width:100%;margin-top:6px;">{leg}</div>'
                 '</div>'
             )
