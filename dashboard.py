@@ -1160,7 +1160,7 @@ def search_stock(query):
 #   -> 상단 코스피/코스닥과 동일한 방식으로,
 #      개별 국내 종목도 지연 없이 실시간가를 가져옴
 # ==========================================
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=60)
 def get_naver_stock_price(ticker):
     code = ticker.split(".")[0]
     try:
@@ -1220,7 +1220,7 @@ def get_us_market_session():
     return "closed"
 
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=60)
 def get_extended_hours_price(ticker):
     """미국 주식 프리마켓/애프터마켓 시세.
     1순위: yfinance info의 preMarketPrice/postMarketPrice
@@ -1258,7 +1258,7 @@ def get_extended_hours_price(ticker):
 # 현재가 조회 (포트폴리오 손익 계산용)
 #  - 국내 종목(.KS/.KQ): 네이버금융 실시간가 우선 사용 (지연 없음)
 #  - 해외 종목: fast_info(실시간에 더 가까움) 우선, 실패 시 일봉 종가로 폴백
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=60)
 def get_current_price(ticker):
     if ticker.endswith(".KS") or ticker.endswith(".KQ"):
         price = get_naver_stock_price(ticker)
@@ -2118,12 +2118,6 @@ if not st.session_state.portfolios:
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
 
-    # 계좌 선택 상태 기본값 초기화 (한 번만) — 체크박스가 아래에서 그려지기 전에
-    # 총합산이 위에서 계산되므로, 세션에 기본값을 먼저 넣어둠
-    for _pn in portfolio_names:
-        if f"sel_{_pn}" not in st.session_state:
-            st.session_state[f"sel_{_pn}"] = True
-
     view_mode = st.radio(
         "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
         key="view_mode_radio", label_visibility="collapsed"
@@ -2260,7 +2254,7 @@ else:
 
         head_cols = st.columns([0.8, 3.2, 1])
         with head_cols[0]:
-            st.checkbox("합산", key=f"sel_{p_name}")
+            st.checkbox("합산", value=True, key=f"sel_{p_name}")
         with head_cols[1]:
             st.markdown(
                 f'<div style="padding-top:4px;"><span style="font-size:15px;font-weight:800;color:#fff;">{p_name}</span> '
