@@ -2252,17 +2252,21 @@ else:
         else:
             summary_line = '<span style="color:#666;">종목 없음</span>'
 
-        head_cols = st.columns([0.8, 3.2, 1])
+        # 계좌 요약 카드 (배경 있는 박스로 깔끔하게)
+        st.markdown(
+            f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px 4px;margin-bottom:2px;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+            f'<div><span style="font-size:16px;font-weight:800;color:#fff;">{p_name}</span> '
+            f'<span style="font-size:12px;color:#888;">({len(holdings)}종목)</span></div>'
+            f'<div style="text-align:right;">{summary_line}</div>'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
+        head_cols = st.columns(2)
         with head_cols[0]:
-            st.checkbox("합산", value=True, key=f"sel_{p_name}")
+            selected_now = st.checkbox("✓ 합산에 포함", value=True, key=f"sel_{p_name}")
         with head_cols[1]:
-            st.markdown(
-                f'<div style="padding-top:4px;"><span style="font-size:15px;font-weight:800;color:#fff;">{p_name}</span> '
-                f'<span style="font-size:12px;color:#888;">({len(holdings)}종목)</span><br>{summary_line}</div>',
-                unsafe_allow_html=True
-            )
-        with head_cols[2]:
-            expanded_acct = st.toggle("상세보기", value=False, key=f"exp_{p_name}")
+            expanded_acct = st.toggle("상세 보기", value=False, key=f"exp_{p_name}")
 
         if expanded_acct:
             acct_has_usd = any(not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings)
