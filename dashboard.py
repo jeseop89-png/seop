@@ -2125,6 +2125,12 @@ if not st.session_state.portfolios:
 else:
     portfolio_names = list(st.session_state.portfolios.keys())
 
+    # 계좌 선택 상태 기본값 초기화 (한 번만) — 체크박스가 아래에서 그려지기 전에
+    # 총합산이 위에서 계산되므로, 세션에 기본값을 먼저 넣어둠
+    for _pn in portfolio_names:
+        if f"sel_{_pn}" not in st.session_state:
+            st.session_state[f"sel_{_pn}"] = True
+
     view_mode = st.radio(
         "보기 방식", ["자동 (기기에 맞춤)", "카드형", "테이블형"], horizontal=True,
         key="view_mode_radio", label_visibility="collapsed"
@@ -2212,8 +2218,7 @@ else:
 
         head_cols = st.columns([0.8, 3.2, 1])
         with head_cols[0]:
-            st.checkbox("합산", value=st.session_state.get(f"sel_{p_name}", True),
-                        key=f"sel_{p_name}", help="체크한 계좌만 맨 위 총합산에 포함됩니다")
+            st.checkbox("합산", key=f"sel_{p_name}", help="체크한 계좌만 맨 위 총합산에 포함됩니다")
         with head_cols[1]:
             st.markdown(
                 f'<div style="padding-top:4px;"><span style="font-size:15px;font-weight:800;color:#fff;">{p_name}</span> '
