@@ -33,7 +33,7 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
 
 FINNHUB_SYMBOLS = {
     "QQQ": "QQQ", "VOO": "VOO", "SOXX": "SOXX", "SPY": "SPY", "SHY": "SHY",
-    "UUP": "UUP", "TLT": "TLT",
+    "UUP": "UUP", "TLT": "TLT", "VIXY": "VIXY",
 }
 
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolios_data.json")
@@ -180,18 +180,34 @@ def get_naver_index(code):
 
 @st.cache_data(ttl=120, max_entries=10)
 def get_usd_krw():
+    # 네이버 환율 API
     try:
         res = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
                            headers={"User-Agent": "Mozilla/5.0",
                                     "Referer": "https://m.stock.naver.com/"}, timeout=5)
         d = res.json()
-        price = d.get("closePrice") or d.get("calcPrice")
-        if price:
-            return float(str(price).replace(",", ""))
+        for key in ("closePrice", "calcPrice", "openPrice"):
+            price = d.get(key)
+            if price:
+                val = float(str(price).replace(",", ""))
+                if 800 < val < 2500:  # 정상 환율 범위 체크
+                    return val
     except Exception:
         pass
-    q = get_finnhub_quote("OANDA:USD_KRW")
-    return q["current"] if q else 1380.0
+    # 폴백: 네이버 크롤링
+    try:
+        from bs4 import BeautifulSoup
+        res = requests.get("https://finance.naver.com/marketindex/",
+                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        soup = BeautifulSoup(res.text, "html.parser")
+        tag = soup.select_one("div.head_info > span.value")
+        if tag:
+            val = float(tag.text.replace(",", ""))
+            if 800 < val < 2500:
+                return val
+    except Exception:
+        pass
+    return 1380.0
 
 
 @st.cache_data(ttl=300, max_entries=20)
@@ -364,7 +380,7 @@ def render_market():
     krw = get_usd_krw()
     fg_score, fg_status = get_cnn_fear_greed()
     dxy = get_finnhub_quote("UUP")
-    vix = get_finnhub_quote("^VIX")  # 무료 미지원일 수 있음
+    vix = get_finnhub_quote("VIXY")  # VIX ETF 프록시 (Finnhub 무료 지원)
     shy = get_finnhub_quote("SHY")
     tlt = get_finnhub_quote("TLT")
     m2 = get_global_m2()
@@ -388,13 +404,13 @@ def render_market():
         dxy_cell = cell("달러인덱스", f"${dxy['current']:,.2f}", f"{a} {abs(dxy['change_pct']):.2f}%", c)
     else:
         dxy_cell = cell("달러인덱스", "-")
-    # 빅스
+    # 빅스 (VIXY ETF 프록시 - 변동성). 등락률로 표시
     if vix:
-        v = vix["current"]
-        msg, mc = ("안정", "#4dff4d") if v < 15 else ("유의", "#ffff4d") if v < 20 else ("경계", "#ff944d") if v < 30 else ("위험", "#ff4d4d")
-        vix_cell = cell("빅스 VIX", f"{v:.2f}", msg, mc)
+        c = "#ff4d4d" if vix["change_pct"] >= 0 else "#4d94ff"
+        a = "▲" if vix["change_pct"] >= 0 else "▼"
+        vix_cell = cell("변동성 VIXY", f"${vix['current']:,.2f}", f"{a} {abs(vix['change_pct']):.2f}%", c)
     else:
-        vix_cell = cell("빅스 VIX", "-")
+        vix_cell = cell("변동성 VIXY", "-")
     # 국채 (SHY=단기, TLT=장기 프록시)
     bond_main = "-"
     if shy or tlt:
@@ -710,11 +726,6 @@ else:
     cur_fx = get_usd_krw()
     names = list(st.session_state.portfolios.keys())
 
-    # 통화 토글
-    cmode = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
-                     key="currency_mode", label_visibility="collapsed")
-    show_krw_global = (cmode == "₩ 원화")
-
     # 1단계: 전 계좌 계산
     acct_data = {}
     grand_buy = grand_eval = grand_fx = 0.0
@@ -758,7 +769,7 @@ else:
 
     st.markdown("<div style='font-size:13px;color:#888;margin:12px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
-    # 3단계: 계좌별 요약 + 상세 접기
+    # 3단계: 계좌별 요약 (한 줄 컴팩트) + 상세 접기
     for nm in names:
         d = acct_data[nm]
         holdings = st.session_state.portfolios[nm]
@@ -767,25 +778,29 @@ else:
         ppct = (profit / buy_krw * 100) if buy_krw else 0
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
-        summary = (f'<span style="color:#fff;font-weight:700;">{eval_krw:,.0f}원</span> '
-                   f'<span style="color:{pc};font-weight:700;">{pa} {abs(ppct):.1f}%</span>') if buy_krw else '<span style="color:#666;">종목 없음</span>'
 
-        st.markdown(
-            f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px 4px;">'
-            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-            f'<div><span style="font-size:16px;font-weight:800;color:#fff;">{nm}</span> '
-            f'<span style="font-size:12px;color:#888;">({len(holdings)}종목)</span></div>'
-            f'<div>{summary}</div></div></div>', unsafe_allow_html=True)
-
-        cc = st.columns(2)
-        with cc[0]:
-            st.checkbox("✓ 합산 포함", value=True, key=f"sel_{nm}")
-        with cc[1]:
-            expanded = st.checkbox("📂 상세 보기", value=False, key=f"exp_{nm}")
+        # 계좌 첫 줄: 계좌명 + 평가금/손익률 + 합산체크 + 상세토글 (한 줄로 공간 최소화)
+        hcols = st.columns([2.2, 0.9, 0.9])
+        with hcols[0]:
+            summary = (f'<span style="color:{pc};font-weight:700;">{eval_krw:,.0f}원 {pa}{abs(ppct):.1f}%</span>') if buy_krw else '<span style="color:#666;">종목없음</span>'
+            st.markdown(
+                f'<div style="padding-top:6px;"><span style="font-size:15px;font-weight:800;color:#fff;">{nm}</span> '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span><br>{summary}</div>',
+                unsafe_allow_html=True)
+        with hcols[1]:
+            st.checkbox("합산", value=True, key=f"sel_{nm}")
+        with hcols[2]:
+            expanded = st.checkbox("상세", value=False, key=f"exp_{nm}")
 
         if expanded:
-            show_krw = show_krw_global
-            # 계좌 상세 요약
+            # 계좌별 통화 토글 (해외 종목 있을 때만)
+            if d["has_usd"]:
+                cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
+                              key=f"cur_{nm}", label_visibility="collapsed")
+                show_krw = (cm == "₩ 원화")
+            else:
+                show_krw = True
+
             if buy_krw > 0:
                 fx = d["fx_gain"]
                 fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
@@ -800,12 +815,13 @@ else:
                     f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};">{pa} {abs(ppct):.1f}%</b></div>'
                     f'</div>{fx_line}', unsafe_allow_html=True)
 
-            bc = st.columns(2)
+            # 종목 추가 / 계좌 삭제 (컴팩트, 한 줄)
+            bc = st.columns([1, 1])
             with bc[0]:
-                if st.button("＋ 종목 추가", key=f"add_{nm}", use_container_width=True):
+                if st.button("＋종목", key=f"add_{nm}", use_container_width=True):
                     add_stock_dialog(nm)
             with bc[1]:
-                if st.button("🗑 계좌 삭제", key=f"del_{nm}", use_container_width=True):
+                if st.button("계좌삭제", key=f"del_{nm}", use_container_width=True):
                     del st.session_state.portfolios[nm]
                     save_portfolios()
                     st.rerun()
@@ -813,10 +829,9 @@ else:
             if holdings:
                 st.markdown("<hr style='border-color:#222;margin:8px 0;'>", unsafe_allow_html=True)
                 render_holdings(nm, d, cur_fx, show_krw)
-                # 계좌 종목별 도넛 (접기)
                 items = [(r["name"], r["eval_amt"] * (cur_fx if r["usd"] else 1)) for r in d["rows"] if r["eval_amt"]]
                 if items:
                     with st.expander("📊 이 계좌 종목별 비중"):
                         st.markdown(build_donut(items, size=150), unsafe_allow_html=True)
 
-        st.markdown("<div style='height:10px;border-bottom:1px solid #1a1a1a;margin-bottom:10px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;border-bottom:1px solid #1a1a1a;margin-bottom:8px;'></div>", unsafe_allow_html=True)
