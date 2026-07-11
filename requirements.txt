@@ -1,7 +1,5 @@
 streamlit>=1.40
-yfinance
 requests
 beautifulsoup4
-pandas
 gspread
 google-auth
