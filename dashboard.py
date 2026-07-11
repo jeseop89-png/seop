@@ -41,16 +41,6 @@ st.markdown(
         color: #ffffff;
         transform: translateY(0px);
     }
-    /* 합산 체크박스·상세보기 토글 라벨을 더 크고 잘 보이게 */
-    div[data-testid="stCheckbox"] label p,
-    div[data-testid="stToggle"] label p {
-        font-size: 15px !important;
-        font-weight: 700 !important;
-    }
-    div[data-testid="stCheckbox"] label,
-    div[data-testid="stToggle"] label {
-        padding: 6px 0 !important;
-    }
     /* 모바일에서 st.columns가 한 줄로 쭉 세로로 쌓이지 않고, 화면 폭에 맞춰
        2개씩 자동으로 줄바꿈되는 격자(그리드)로 보이게 함 (옆으로 스크롤 불필요) */
     @media (max-width: 900px) {
@@ -245,7 +235,7 @@ def get_year_history_stats(ticker):
     return None
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=100)
 def get_korean_index_final(code):
     ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
     ticker = ticker_map.get(code)
@@ -297,7 +287,7 @@ NAVER_WORLD_SYMBOLS = {
 }
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=100)
 def get_naver_world_index(naver_symbol):
     try:
         url = f"https://finance.naver.com/world/sise.naver?symbol={naver_symbol}"
@@ -345,7 +335,7 @@ def get_yf_live_price(ticker):
     return None
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=200)
 def get_finnhub_quote(ticker):
     """Finnhub 정식 API로 실시간 시세 조회. 야후(yfinance)와 달리 IP 차단이 없어
     클라우드에서도 빠르고 안정적. API 키는 Streamlit Secrets의 FINNHUB_API_KEY에 등록."""
@@ -374,7 +364,7 @@ def get_finnhub_quote(ticker):
     return None
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=100)
 def get_index_data(ticker):
     stats = get_year_history_stats(ticker)  # 52주 최고가/전일종가 (실패하면 None일 수 있음)
     try:
@@ -548,7 +538,7 @@ def get_safe_rates_engine():
     return rates
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=100)
 def get_cnn_fear_greed():
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -769,7 +759,7 @@ def make_gauge_svg(score, width=140, height=76, r=58, label=""):
 # ==========================================
 @st.fragment(run_every=60)
 # ==========================================
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=200)
 def get_recent_closes(ticker):
     try:
         # Wilder 스무딩이 안정적으로 수렴하려면 넉넉한 기간이 필요
@@ -1095,7 +1085,7 @@ def search_naver_autocomplete(query):
         return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=100)
 def search_stock(query):
     if not query or len(query.strip()) < 1:
         return []
@@ -1170,7 +1160,7 @@ def search_stock(query):
 #   -> 상단 코스피/코스닥과 동일한 방식으로,
 #      개별 국내 종목도 지연 없이 실시간가를 가져옴
 # ==========================================
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=200)
 def get_naver_stock_price(ticker):
     code = ticker.split(".")[0]
     try:
@@ -1189,7 +1179,7 @@ def get_naver_stock_price(ticker):
 # ==========================================
 # 💱 현재 원/달러 환율 (직투계좌 원화환산 · 환차익 계산용)
 # ==========================================
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=100)
 def get_usd_krw_rate():
     try:
         live = get_yf_live_price("USDKRW=X")
@@ -1230,7 +1220,7 @@ def get_us_market_session():
     return "closed"
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=200)
 def get_extended_hours_price(ticker):
     """미국 주식 프리마켓/애프터마켓 시세.
     1순위: yfinance info의 preMarketPrice/postMarketPrice
@@ -1268,7 +1258,7 @@ def get_extended_hours_price(ticker):
 # 현재가 조회 (포트폴리오 손익 계산용)
 #  - 국내 종목(.KS/.KQ): 네이버금융 실시간가 우선 사용 (지연 없음)
 #  - 해외 종목: fast_info(실시간에 더 가까움) 우선, 실패 시 일봉 종가로 폴백
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=200)
 def get_current_price(ticker):
     if ticker.endswith(".KS") or ticker.endswith(".KQ"):
         price = get_naver_stock_price(ticker)
@@ -1560,7 +1550,7 @@ def compute_portfolio_rows(holdings):
     return rows, total_buy_amount, total_eval_amount, fx_summary
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=100)
 def get_prev_close(ticker):
     """전일 종가 조회 (당일 등락률 계산용)"""
     try:
