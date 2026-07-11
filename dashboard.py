@@ -220,7 +220,7 @@ def save_watchlist():
 #      자주 안 바뀌는 값은 따로 떼어내 몇 시간에 한 번만 다시 가져오도록 캐시.
 #      덕분에 30~60초마다 도는 자동 갱신에서는 가벼운 현재가 조회만 반복됨.
 # ==========================================
-@st.cache_data(ttl=3600 * 4)
+@st.cache_data(ttl=3600 * 4, max_entries=50)
 def get_year_history_stats(ticker):
     try:
         df = yf.Ticker(ticker).history(period="1y")
@@ -235,7 +235,7 @@ def get_year_history_stats(ticker):
     return None
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=50)
 def get_korean_index_final(code):
     ticker_map = {"KOSPI": "^KS11", "KOSDAQ": "^KQ11"}
     ticker = ticker_map.get(code)
@@ -287,7 +287,7 @@ NAVER_WORLD_SYMBOLS = {
 }
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=50)
 def get_naver_world_index(naver_symbol):
     try:
         url = f"https://finance.naver.com/world/sise.naver?symbol={naver_symbol}"
@@ -335,7 +335,7 @@ def get_yf_live_price(ticker):
     return None
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=50)
 def get_finnhub_quote(ticker):
     """Finnhub 정식 API로 실시간 시세 조회. 야후(yfinance)와 달리 IP 차단이 없어
     클라우드에서도 빠르고 안정적. API 키는 Streamlit Secrets의 FINNHUB_API_KEY에 등록."""
@@ -364,7 +364,7 @@ def get_finnhub_quote(ticker):
     return None
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=50)
 def get_index_data(ticker):
     stats = get_year_history_stats(ticker)  # 52주 최고가/전일종가 (실패하면 None일 수 있음)
     try:
@@ -448,7 +448,7 @@ def _unused_old_get_index_data(ticker):
         return None
 
 
-@st.cache_data(ttl=3600 * 6)
+@st.cache_data(ttl=3600 * 6, max_entries=50)
 def scrape_rate_from_tradingeconomics(country_path):
     """TradingEconomics 한국어 페이지에서 '~기준 금리는 마지막으로 X%로 기록되었습니다' 문구를 파싱.
     사이트 구조가 바뀌거나 차단되면 조용히 None을 반환 (호출부에서 수동값으로 폴백)."""
@@ -468,7 +468,7 @@ def scrape_rate_from_tradingeconomics(country_path):
     return None
 
 
-@st.cache_data(ttl=3600 * 6)
+@st.cache_data(ttl=3600 * 6, max_entries=50)
 def get_safe_rates_engine():
     # ⚠️ 한국(BOK)·일본(BOJ) 기준금리: 공식 무료 API가 없어 TradingEconomics 페이지
     #    크롤링으로 자동화를 시도합니다. 사이트 구조가 바뀌면 크롤링이 실패할 수 있고,
@@ -538,7 +538,7 @@ def get_safe_rates_engine():
     return rates
 
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=120, max_entries=50)
 def get_cnn_fear_greed():
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -588,7 +588,7 @@ def get_cnn_fear_greed():
 # 📉 FRED 공개 데이터 (하이일드 스프레드 / 글로벌 M2)
 #   -> API 키 없이 접근 가능한 fredgraph.csv 엔드포인트 사용
 # ==========================================
-@st.cache_data(ttl=3600 * 3)
+@st.cache_data(ttl=3600 * 3, max_entries=50)
 def fetch_fred_series(series_id):
     # 1순위: FRED 공식 API (무료 키 필요, Streamlit Secrets에 FRED_API_KEY로 등록 시 사용)
     # 스크래핑용 CSV 엔드포인트보다 훨씬 안정적이고 클라우드 IP 차단 이슈가 없음
@@ -630,7 +630,7 @@ def fetch_fred_series(series_id):
         return None
 
 
-@st.cache_data(ttl=3600 * 3)
+@st.cache_data(ttl=3600 * 3, max_entries=50)
 def get_high_yield_spread():
     # ICE BofA US High Yield Index Option-Adjusted Spread (일간)
     data = fetch_fred_series("BAMLH0A0HYM2")
@@ -643,7 +643,7 @@ def get_high_yield_spread():
     return {"value": value, "date": date, "change": change}
 
 
-@st.cache_data(ttl=3600 * 6)
+@st.cache_data(ttl=3600 * 6, max_entries=50)
 def get_global_m2():
     # 미국 M2(M2SL, 10억달러) + 유로존 M2(MYAGM2EZM196N, 유로) 합산
     # ※ 중국·일본 M2는 FRED 공개 시계열이 중단되어 제외 (2019년 이후 갱신 안됨)
@@ -759,7 +759,7 @@ def make_gauge_svg(score, width=140, height=76, r=58, label=""):
 # ==========================================
 @st.fragment(run_every=60)
 # ==========================================
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=50)
 def get_recent_closes(ticker):
     try:
         # Wilder 스무딩이 안정적으로 수렴하려면 넉넉한 기간이 필요
@@ -797,20 +797,8 @@ def get_rsi(ticker, current_price=None, period=14):
 
 
 def render_market_overview():
-    # ⚡ 아래에서 순서대로 하나씩 불러오면 20개 가까운 외부 요청이 직렬로 쌓여서
-    # 느려지므로, 먼저 전부 동시에(병렬로) 미리 가져와 캐시를 채워둠.
-    # 이후 코드는 그대로 각 함수를 다시 호출하지만, 캐시에 이미 있어서 즉시 반환됨.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as _warm_pool:
-        _warm_jobs = [
-            _warm_pool.submit(get_index_data, "USDKRW=X"),
-            _warm_pool.submit(get_index_data, "^VIX"),
-            _warm_pool.submit(get_index_data, "SHY"),
-            _warm_pool.submit(get_index_data, "^TNX"),
-            _warm_pool.submit(get_cnn_fear_greed),
-            _warm_pool.submit(get_global_m2),
-            _warm_pool.submit(get_finnhub_quote, "UUP"),
-        ]
-        concurrent.futures.wait(_warm_jobs, timeout=8)
+    # 지표는 각 함수가 캐시(TTL)를 갖고 있어, 한 번 불러오면 이후엔 캐시에서 즉시 반환됨.
+    # (이전엔 백그라운드 스레드로 미리 당겨왔으나, 클라우드 메모리 절약을 위해 제거)
 
     # 2. 지수 티커 바 2줄 (접기 없이 항상 표시)
     #    1줄: 코스피·S&P500·나스닥·반도체·골드
@@ -970,7 +958,7 @@ if "section_expanded" not in st.session_state:
 
 
 # 한국 종목(.KS/.KQ) 한글 종목명 조회 (네이버 금융)
-@st.cache_data(ttl=86400)
+@st.cache_data(ttl=86400, max_entries=50)
 def get_korean_name(ticker):
     try:
         code = ticker.split(".")[0]
@@ -1058,7 +1046,7 @@ def combine_currency(usd_html, krw_txt):
     return usd_html
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600, max_entries=50)
 def search_naver_autocomplete(query):
     """네이버 자동완성 API로 한글 종목명 검색 (yfinance가 못 찾는 한글명 보완)"""
     try:
@@ -1085,7 +1073,7 @@ def search_naver_autocomplete(query):
         return []
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, max_entries=50)
 def search_stock(query):
     if not query or len(query.strip()) < 1:
         return []
@@ -1160,7 +1148,7 @@ def search_stock(query):
 #   -> 상단 코스피/코스닥과 동일한 방식으로,
 #      개별 국내 종목도 지연 없이 실시간가를 가져옴
 # ==========================================
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=50)
 def get_naver_stock_price(ticker):
     code = ticker.split(".")[0]
     try:
@@ -1179,7 +1167,7 @@ def get_naver_stock_price(ticker):
 # ==========================================
 # 💱 현재 원/달러 환율 (직투계좌 원화환산 · 환차익 계산용)
 # ==========================================
-@st.cache_data(ttl=50)
+@st.cache_data(ttl=50, max_entries=50)
 def get_usd_krw_rate():
     try:
         live = get_yf_live_price("USDKRW=X")
@@ -1220,7 +1208,7 @@ def get_us_market_session():
     return "closed"
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=50)
 def get_extended_hours_price(ticker):
     """미국 주식 프리마켓/애프터마켓 시세.
     1순위: yfinance info의 preMarketPrice/postMarketPrice
@@ -1258,7 +1246,7 @@ def get_extended_hours_price(ticker):
 # 현재가 조회 (포트폴리오 손익 계산용)
 #  - 국내 종목(.KS/.KQ): 네이버금융 실시간가 우선 사용 (지연 없음)
 #  - 해외 종목: fast_info(실시간에 더 가까움) 우선, 실패 시 일봉 종가로 폴백
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60, max_entries=50)
 def get_current_price(ticker):
     if ticker.endswith(".KS") or ticker.endswith(".KQ"):
         price = get_naver_stock_price(ticker)
@@ -1550,7 +1538,7 @@ def compute_portfolio_rows(holdings):
     return rows, total_buy_amount, total_eval_amount, fx_summary
 
 
-@st.cache_data(ttl=50)
+@st.cache_data(ttl=50, max_entries=50)
 def get_prev_close(ticker):
     """전일 종가 조회 (당일 등락률 계산용)"""
     try:
