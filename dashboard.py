@@ -23,9 +23,9 @@ st.markdown(
         border: 1px solid #2a2a2a;
         background: linear-gradient(180deg, #1c1c1c, #151515);
         color: #e0e0e0;
-        padding: 8px 14px;
-        font-weight: 600;
-        font-size: 13px;
+        padding: 11px 18px;
+        font-weight: 700;
+        font-size: 14px;
         transition: all 0.18s ease;
         box-shadow: 0 1px 2px rgba(0,0,0,0.3);
     }
@@ -808,6 +808,7 @@ def render_market_overview():
             _warm_pool.submit(get_index_data, "^TNX"),
             _warm_pool.submit(get_cnn_fear_greed),
             _warm_pool.submit(get_global_m2),
+            _warm_pool.submit(get_finnhub_quote, "UUP"),
         ]
         concurrent.futures.wait(_warm_jobs, timeout=8)
 
@@ -881,30 +882,22 @@ def render_market_overview():
         '</div>'
     )
 
-    # 하이일드는 국채 신용 위험 참고용으로 M2 대신 표시하지 않고, 요청한 5개만 유지
-    # 글로벌 M2 셀
-    if m2:
-        m2_val = m2.get("total_trillion")
-        m2_yoy = m2.get("yoy")
-        trend = m2.get("trend") or []
-        spark_color = "#4dff4d" if (m2_yoy or 0) >= 0 else "#ff4d4d"
-        spark = make_sparkline_svg(trend, width=90, height=34, color=spark_color) if len(trend) >= 2 else ""
-        yoy_txt = ""
-        if m2_yoy is not None:
-            yc = "#ff4d4d" if m2_yoy >= 0 else "#4d94ff"
-            ya = "▲" if m2_yoy >= 0 else "▼"
-            yoy_txt = f'<span style="font-size:10px;font-weight:700;color:{yc};">{ya}{abs(m2_yoy):.1f}%</span>'
-        m2_cell = (
+    # 달러인덱스 셀 (UUP = Invesco DB US Dollar Index ETF, Finnhub 실시간)
+    dxy = get_finnhub_quote("UUP")
+    if dxy:
+        dxy_color = "#ff4d4d" if dxy["change_pct"] >= 0 else "#4d94ff"
+        dxy_arrow = "▲" if dxy["change_pct"] >= 0 else "▼"
+        dxy_cell = (
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
-            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${m2_val:,.1f}T {yoy_txt}</div>'
-            f'<div style="margin-top:2px;">{spark}</div>'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">달러인덱스</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">${dxy["current"]:,.2f}</div>'
+            f'<div style="font-size:11px;font-weight:700;color:{dxy_color};white-space:nowrap;">{dxy_arrow} {abs(dxy["change_pct"]):.2f}%</div>'
             '</div>'
         )
     else:
-        m2_cell = (
+        dxy_cell = (
             '<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">글로벌 M2</div>'
+            '<div style="font-size:11px;color:#aaa;white-space:nowrap;">달러인덱스</div>'
             '<div style="font-size:12px;color:#666;margin-top:2px;">⏳</div></div>'
         )
 
@@ -913,10 +906,10 @@ def render_market_overview():
     # 빅스 셀
     vix_cell = ticker_cell("빅스 VIX", vix_data, unit="", decimals=2, extra=vix_extra)
 
-    # 한 줄: 환율 · 공포탐욕 · 글로벌M2 · 빅스 · 국채
+    # 한 줄: 환율 · 공포탐욕 · 달러인덱스 · 빅스 · 국채  (M2는 아래 접이식 차트로 이동)
     row = (
         '<div style="display:flex;background-color:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;flex-wrap:wrap;">'
-        + krw_cell + fg_cell + m2_cell + vix_cell + bond_cell
+        + krw_cell + fg_cell + dxy_cell + vix_cell + bond_cell
         + '</div>'
     )
     st.markdown(row, unsafe_allow_html=True)
@@ -2108,17 +2101,14 @@ def render_portfolio_cards_mobile(portfolio_name, rows, total_eval_amount):
 
 st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
 
-title_cols = st.columns([5, 1])
-with title_cols[0]:
-    st.markdown(
-        "<h3 style='margin:0px;padding:0px;font-weight:800;letter-spacing:-0.5px;'>"
-        "<span style='display:inline-block;width:4px;height:20px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:8px;vertical-align:-3px;'></span>"
-        "내 포트폴리오</h3>",
-        unsafe_allow_html=True
-    )
-with title_cols[1]:
-    if st.button("+ 포트폴리오 생성", use_container_width=True):
-        create_portfolio_dialog()
+st.markdown(
+    "<h3 style='margin:0 0 10px 0;padding:0px;font-weight:800;letter-spacing:-0.5px;font-size:22px;'>"
+    "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
+    "내 포트폴리오</h3>",
+    unsafe_allow_html=True
+)
+if st.button("＋ 새 포트폴리오 생성", use_container_width=True):
+    create_portfolio_dialog()
 
 if not st.session_state.portfolios:
     st.info("아직 만든 포트폴리오가 없습니다. 오른쪽 위 버튼으로 새 포트폴리오를 만들어보세요.")
@@ -2175,28 +2165,75 @@ else:
             acct_buy_krw=acct_buy_krw, acct_eval_krw=acct_eval_krw,
         )
 
-    # ===== 2단계: 총합산 메인 카드 (맨 위) — 숫자만, 도넛 제거 =====
+    # ===== 2단계: 총합산 (접이식) — 헤더에 핵심 숫자, 펼치면 상세+종목별 도넛 =====
     if grand_has_any:
         g_profit = grand_eval_krw - grand_buy_krw
         g_pct = (g_profit / grand_buy_krw * 100) if grand_buy_krw else 0
         g_color = "#ff4d4d" if g_pct >= 0 else "#4d94ff"
         g_arrow = "▲" if g_pct >= 0 else "▼"
 
-        st.markdown(
-            '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:18px 20px;margin-bottom:16px;">'
-            '<div style="font-size:15px;font-weight:800;color:#4dd2ff;margin-bottom:12px;">📊 선택 계좌 총 합산 (원화 기준)</div>'
-            '<div style="display:flex;gap:16px 28px;flex-wrap:wrap;">'
-            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:18px;font-weight:800;color:#fff;">{grand_buy_krw:,.0f}원</div></div>'
-            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:20px;font-weight:800;color:#fff;">{grand_eval_krw:,.0f}원</div></div>'
-            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_profit):,.0f}원</div></div>'
-            f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익률</div><div style="font-size:18px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_pct):.1f}%</div></div>'
-            '</div></div>',
-            unsafe_allow_html=True
-        )
+        with st.expander(f"💰  선택 계좌 총 평가금  {grand_eval_krw:,.0f}원   ({g_arrow} {abs(g_pct):.1f}%)", expanded=False):
+            st.markdown(
+                '<div style="display:flex;gap:16px 28px;flex-wrap:wrap;margin-bottom:8px;">'
+                f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:17px;font-weight:800;color:#fff;">{grand_buy_krw:,.0f}원</div></div>'
+                f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:19px;font-weight:800;color:#fff;">{grand_eval_krw:,.0f}원</div></div>'
+                f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:17px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_profit):,.0f}원</div></div>'
+                f'<div style="flex:1 1 130px;"><div style="font-size:11px;color:#888;">총 손익률</div><div style="font-size:17px;font-weight:800;color:{g_color};">{g_arrow} {abs(g_pct):.1f}%</div></div>'
+                '</div>',
+                unsafe_allow_html=True
+            )
+            # 종목별 비중 도넛 (선택 계좌들의 모든 종목 합산, 같은 종목은 병합)
+            merged = {}
+            for nm, ev in grand_holdings:
+                merged[nm] = merged.get(nm, 0.0) + ev
+            holdings_list = sorted(merged.items(), key=lambda x: -x[1])
+            if grand_eval_krw > 0 and holdings_list:
+                palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+                           "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
+                _size = 170
+                _ro, _ri = _size/2 - 4, _size/2 - 34
+                _rm = (_ro + _ri) / 2
+                _cx = _cy = _size / 2
+                segs = labs = leg = ""
+                ang = -90.0
+                _tot = sum(v for _, v in holdings_list)
+                for i, (an, av) in enumerate(holdings_list):
+                    col = palette[i % len(palette)]
+                    w = av / _tot * 100
+                    sw = w / 100 * 360
+                    a0, a1 = math.radians(ang), math.radians(ang + sw)
+                    x0o, y0o = _cx + _ro*math.cos(a0), _cy + _ro*math.sin(a0)
+                    x1o, y1o = _cx + _ro*math.cos(a1), _cy + _ro*math.sin(a1)
+                    x0i, y0i = _cx + _ri*math.cos(a1), _cy + _ri*math.sin(a1)
+                    x1i, y1i = _cx + _ri*math.cos(a0), _cy + _ri*math.sin(a0)
+                    lg = 1 if sw > 180 else 0
+                    segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
+                    if w >= 7:
+                        ma = math.radians(ang + sw/2)
+                        lx, ly = _cx + _rm*math.cos(ma), _cy + _rm*math.sin(ma)
+                        labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{w:.0f}%</text>'
+                    leg += (
+                        '<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
+                        f'<span style="width:11px;height:11px;border-radius:3px;background:{col};flex:0 0 auto;"></span>'
+                        f'<span style="font-size:13px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{an}</span>'
+                        f'<span style="font-size:13px;color:#fff;font-weight:700;flex:0 0 auto;">{w:.1f}%</span>'
+                        '</div>'
+                    )
+                    ang += sw
+                st.markdown("<div style='font-size:13px;font-weight:700;color:#ccc;margin:10px 0 4px;'>종목별 비중 (전체 합산)</div>", unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">'
+                    f'<div style="flex:0 0 auto;"><svg width="{_size}" height="{_size}" viewBox="0 0 {_size} {_size}">{segs}{labs}'
+                    f'<text x="{_cx}" y="{_cy-4}" text-anchor="middle" font-size="12" font-weight="700" fill="#888">종목</text>'
+                    f'<text x="{_cx}" y="{_cy+12}" text-anchor="middle" font-size="12" font-weight="700" fill="#888">비중</text></svg></div>'
+                    f'<div style="flex:1 1 200px;min-width:200px;">{leg}</div>'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
     else:
         st.info("아래에서 계좌를 선택하면 총 합산이 여기 표시됩니다.")
 
-    st.markdown("<div style='font-size:13px;color:#888;margin-bottom:6px;'>계좌 목록 (체크=합산 포함 · 펼치기로 상세 보기)</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:13px;color:#888;margin:12px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
     # ===== 3단계: 계좌별 요약 행 + 펼치면 상세 =====
     for p_idx, p_name in enumerate(portfolio_names):
@@ -2218,7 +2255,7 @@ else:
 
         head_cols = st.columns([0.8, 3.2, 1])
         with head_cols[0]:
-            st.checkbox("합산", key=f"sel_{p_name}", help="체크한 계좌만 맨 위 총합산에 포함됩니다")
+            st.checkbox("합산", key=f"sel_{p_name}")
         with head_cols[1]:
             st.markdown(
                 f'<div style="padding-top:4px;"><span style="font-size:15px;font-weight:800;color:#fff;">{p_name}</span> '
@@ -2226,7 +2263,7 @@ else:
                 unsafe_allow_html=True
             )
         with head_cols[2]:
-            expanded_acct = st.toggle("상세보기", value=False, key=f"exp_{p_name}", help="켜면 이 계좌의 종목·차트가 펼쳐집니다")
+            expanded_acct = st.toggle("상세보기", value=False, key=f"exp_{p_name}")
 
         if expanded_acct:
             acct_has_usd = any(not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings)
