@@ -486,38 +486,30 @@ def get_safe_rates_engine():
         "JPN": {"rate": MANUAL_FALLBACK["JPN"], "status": "stay", "change": 0.00, "source": "manual"},
     }
 
-    # 미국(FRED)·한국/일본(TradingEconomics 크롤링)을 동시에 가져와서 대기 시간을 줄임
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-        us_future = pool.submit(fetch_fred_series, "DFEDTARU")
-        kor_future = pool.submit(scrape_rate_from_tradingeconomics, "south-korea")
-        jpn_future = pool.submit(scrape_rate_from_tradingeconomics, "japan")
+    # 순차로 가져옴 (캐시되므로 속도보다 메모리 안정성 우선)
+    us_data = fetch_fred_series("DFEDTARU")
+    if us_data:
+        latest_date, latest_rate = us_data[-1]
+        rates["USA"]["rate"] = latest_rate
+        rates["USA"]["source"] = "fred"
+        if len(us_data) > 1:
+            prev_rate = us_data[-2][1]
+            if latest_rate > prev_rate:
+                rates["USA"]["status"] = "up"
+                rates["USA"]["change"] = round(latest_rate - prev_rate, 2)
+            elif latest_rate < prev_rate:
+                rates["USA"]["status"] = "down"
+                rates["USA"]["change"] = round(prev_rate - latest_rate, 2)
 
-        try:
-            us_data = us_future.result()
-            if us_data:
-                latest_date, latest_rate = us_data[-1]
-                rates["USA"]["rate"] = latest_rate
-                rates["USA"]["source"] = "fred"
-                if len(us_data) > 1:
-                    prev_rate = us_data[-2][1]
-                    if latest_rate > prev_rate:
-                        rates["USA"]["status"] = "up"
-                        rates["USA"]["change"] = round(latest_rate - prev_rate, 2)
-                    elif latest_rate < prev_rate:
-                        rates["USA"]["status"] = "down"
-                        rates["USA"]["change"] = round(prev_rate - latest_rate, 2)
-        except Exception:
-            pass
-
-        scrape_results = {"KOR": None, "JPN": None}
-        try:
-            scrape_results["KOR"] = kor_future.result()
-        except Exception:
-            pass
-        try:
-            scrape_results["JPN"] = jpn_future.result()
-        except Exception:
-            pass
+    scrape_results = {"KOR": None, "JPN": None}
+    try:
+        scrape_results["KOR"] = scrape_rate_from_tradingeconomics("south-korea")
+    except Exception:
+        pass
+    try:
+        scrape_results["JPN"] = scrape_rate_from_tradingeconomics("japan")
+    except Exception:
+        pass
 
     for key, scraped in scrape_results.items():
         if scraped is not None:
@@ -647,12 +639,9 @@ def get_high_yield_spread():
 def get_global_m2():
     # 미국 M2(M2SL, 10억달러) + 유로존 M2(MYAGM2EZM196N, 유로) 합산
     # ※ 중국·일본 M2는 FRED 공개 시계열이 중단되어 제외 (2019년 이후 갱신 안됨)
-    # 두 시리즈를 동시에 가져와서(순차 대기보다 두 배 빠름) 대기 시간을 줄임
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-        us_future = pool.submit(fetch_fred_series, "M2SL")
-        eu_future = pool.submit(fetch_fred_series, "MYAGM2EZM196N")
-        us = us_future.result()
-        eu = eu_future.result()
+    # 두 시리즈를 순차로 가져옴 (6시간 캐시라 속도보다 메모리 안정성 우선)
+    us = fetch_fred_series("M2SL")
+    eu = fetch_fred_series("MYAGM2EZM196N")
     if not us or not eu:
         return None
 
