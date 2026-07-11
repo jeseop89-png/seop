@@ -2266,7 +2266,7 @@ else:
         with head_cols[0]:
             selected_now = st.checkbox("✓ 합산에 포함", value=True, key=f"sel_{p_name}")
         with head_cols[1]:
-            expanded_acct = st.toggle("상세 보기", value=False, key=f"exp_{p_name}")
+            expanded_acct = st.checkbox("📂 상세 보기", value=False, key=f"exp_{p_name}")
 
         if expanded_acct:
             acct_has_usd = any(not (h["ticker"].endswith(".KS") or h["ticker"].endswith(".KQ")) for h in holdings)
