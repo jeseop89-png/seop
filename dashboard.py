@@ -26,15 +26,8 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
     font-size: 14px !important; font-weight: 700 !important;
 }
 @media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] {
-        flex-wrap: nowrap !important;
-        gap: 4px !important;
-        flex-direction: row !important;
-    }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-        min-width: 0 !important;
-        width: auto !important;
-    }
+    div[data-testid="stHorizontalBlock"] { gap: 4px !important; }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] { min-width: 0 !important; }
 }
 div[data-testid="column"] { min-width: 0 !important; }
 div[data-testid="stButton"] > button { padding-left: 2px !important; padding-right: 2px !important; }
@@ -848,12 +841,11 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 합산 + 펼치기 (한 줄)
-        ncols = st.columns([1.5, 0.8, 1])
+        # 계좌명 + 합산 + 펼치기 (한 줄, 화면 안에 맞춤)
+        ncols = st.columns([1.2, 1, 1])
         with ncols[0]:
             st.markdown(
-                f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
-                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                f'<div style="padding-top:6px;font-size:14px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm}</div>',
                 unsafe_allow_html=True)
         with ncols[1]:
             st.checkbox("합산", value=True, key=f"sel_{nm}")
