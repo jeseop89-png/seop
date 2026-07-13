@@ -704,18 +704,18 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:3px 8px;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
             # 종목명: 2행에 걸쳐 세로 중앙
-            f'<div style="grid-row:span 2;font-size:14px;font-weight:800;color:#fff;word-break:break-all;line-height:1.25;">{r["name"]}'
+            f'<div style="grid-row:span 2;font-size:14px;font-weight:800;color:#fff;word-break:break-all;line-height:1.25;padding-right:8px;">{r["name"]}'
             f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:2px;">{r["qty"]:,.0f}주</div></div>'
-            # 1행 숫자: 수익금 / 평가금 / 현재가
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#4dd2ff;white-space:nowrap;">{money(price, True) if price else "-"}</div>'
+            # 1행 숫자: 수익금 / 평가금 / 현재가 (세로선 구분)
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#4dd2ff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(price, True) if price else "-"}</div>'
             # 2행 숫자: 수익률 / 매입금 / 평단가
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;">{money(r["avg_price"], True)}</div>'
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["avg_price"], True)}</div>'
             f'</div>'
             # 하단: 목표/현재 비중 + 조정금액
             f'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 10px;margin-top:6px;padding-top:6px;border-top:1px solid #222;font-size:11px;color:#888;">'
@@ -841,28 +841,32 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명
-        st.markdown(
-            f'<div style="font-size:15px;font-weight:800;color:#fff;word-break:break-all;margin-bottom:4px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
-
-        # 관리 · 펼치기 · 합산 (한 줄)
-        rcols = st.columns([1, 1, 0.8])
-        with rcols[0]:
-            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
-        with rcols[1]:
+        # 계좌명 + 펼치기 + 합산 (한 줄)
+        ncols = st.columns([2, 0.9, 0.7])
+        with ncols[0]:
+            st.markdown(
+                f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                unsafe_allow_html=True)
+        with ncols[1]:
             expanded = st.toggle("펼치기", value=False, key=f"exp_{nm}")
-        with rcols[2]:
+        with ncols[2]:
             st.checkbox("합산", value=True, key=f"sel_{nm}")
 
-        # 통화 토글 (펼쳤고 해외 종목 있을 때만)
+        # 관리 버튼 (아래, 작게) + 통화토글(펼쳤을 때)
         show_krw = True
         if expanded and d["has_usd"]:
-            cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
-                          key=f"cur_{nm}", label_visibility="collapsed")
-            show_krw = (cm == "₩ 원화")
+            mcols = st.columns([1, 2.5])
+            with mcols[0]:
+                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                    manage_holdings_dialog(nm)
+            with mcols[1]:
+                cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
+                              key=f"cur_{nm}", label_visibility="collapsed")
+                show_krw = (cm == "₩ 원화")
+        else:
+            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                manage_holdings_dialog(nm)
 
         # 계좌 요약 (항상 표시)
         if buy_krw > 0:
