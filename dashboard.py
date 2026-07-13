@@ -840,16 +840,18 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 관리 버튼 하나 (한 줄)
-        hcols = st.columns([3, 1])
+        # 계좌명 + 관리(작게) + 접기 토글 (한 줄)
+        hcols = st.columns([2, 0.7, 0.9])
         with hcols[0]:
             st.markdown(
                 f'<div style="padding-top:6px;font-size:16px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
                 f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with hcols[1]:
-            if st.button("⚙ 관리", key=f"manage_{nm}", use_container_width=True):
+            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
                 manage_holdings_dialog(nm)
+        with hcols[2]:
+            expanded = st.toggle("펼침", value=True, key=f"exp_{nm}")
 
         # 2줄: 통화토글 + 합산체크
         tcols = st.columns([2.5, 0.8])
@@ -878,8 +880,8 @@ else:
                 f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
                 f'</div>{fx_line}', unsafe_allow_html=True)
 
-        # 종목 리스트 (항상 펼침)
-        if holdings:
+        # 종목 리스트 (접기/펼치기)
+        if holdings and expanded:
             render_holdings(nm, d, cur_fx, show_krw)
             items = [(r["name"], r["eval_amt"] * (cur_fx if r["usd"] else 1)) for r in d["rows"] if r["eval_amt"]]
             if items:
