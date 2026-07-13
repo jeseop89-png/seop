@@ -26,8 +26,15 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
     font-size: 14px !important; font-weight: 700 !important;
 }
 @media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] { gap: 3px !important; }
-    div[data-testid="column"] { min-width: 0 !important; }
+    div[data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 4px !important;
+        flex-direction: row !important;
+    }
+    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+    }
 }
 div[data-testid="column"] { min-width: 0 !important; }
 div[data-testid="stButton"] > button { padding-left: 2px !important; padding-right: 2px !important; }
@@ -842,7 +849,7 @@ else:
         pa = "▲" if profit >= 0 else "▼"
 
         # 계좌명 + 펼치기 + 합산 (한 줄)
-        ncols = st.columns([2, 0.9, 0.7])
+        ncols = st.columns([1.5, 1, 0.8])
         with ncols[0]:
             st.markdown(
                 f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
