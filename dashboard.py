@@ -604,16 +604,34 @@ def edit_stock_dialog(acct, idx):
             st.rerun()
 
 
-@st.dialog("종목 관리")
+@st.dialog("계좌 관리")
 def manage_holdings_dialog(acct):
     holdings = st.session_state.portfolios[acct]
-    st.caption(f"{acct} · {len(holdings)}개 종목")
+
+    # 1) 계좌 이름 수정
+    st.markdown("**계좌 이름**")
+    rc = st.columns([3, 1])
+    with rc[0]:
+        new_name = st.text_input("계좌 이름", value=acct, key=f"rn_{acct}", label_visibility="collapsed")
+    with rc[1]:
+        if st.button("변경", key=f"rn_btn_{acct}", use_container_width=True):
+            if new_name and new_name != acct and new_name not in st.session_state.portfolios:
+                new_dict = {}
+                for k, v in st.session_state.portfolios.items():
+                    new_dict[new_name if k == acct else k] = v
+                st.session_state.portfolios = new_dict
+                save_portfolios()
+                st.rerun()
+
+    st.markdown("<hr style='border-color:#222;margin:8px 0;'>", unsafe_allow_html=True)
+
+    # 2) 종목 관리
+    st.markdown(f"**종목 ({len(holdings)}개)**")
     if st.button("＋ 새 종목 추가", use_container_width=True):
         st.session_state["_open_add"] = acct
         st.rerun()
-    st.markdown("<hr style='border-color:#222;margin:6px 0;'>", unsafe_allow_html=True)
     for i, h in enumerate(holdings):
-        st.markdown(f'**{h["name"]}** <span style="color:#888;font-size:12px;">{h["ticker"]} · {h["qty"]:,.0f}주 @ {h["avg_price"]:.2f}</span>',
+        st.markdown(f'{h["name"]} <span style="color:#888;font-size:12px;">{h["ticker"]} · {h["qty"]:,.0f}주 @ {h["avg_price"]:.2f}</span>',
                     unsafe_allow_html=True)
         bc = st.columns(2)
         with bc[0]:
@@ -624,21 +642,14 @@ def manage_holdings_dialog(acct):
             if st.button("수정·삭제", key=f"mng_edit_{acct}_{i}", use_container_width=True):
                 st.session_state["_open_edit"] = (acct, i)
                 st.rerun()
-        st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
+    st.markdown("<hr style='border-color:#222;margin:8px 0;'>", unsafe_allow_html=True)
 
-@st.dialog("계좌 이름 수정")
-def rename_account_dialog(acct):
-    new_name = st.text_input("새 계좌 이름", value=acct)
-    if st.button("변경", use_container_width=True):
-        if new_name and new_name != acct and new_name not in st.session_state.portfolios:
-            # 순서 유지하며 키 이름 변경
-            new_dict = {}
-            for k, v in st.session_state.portfolios.items():
-                new_dict[new_name if k == acct else k] = v
-            st.session_state.portfolios = new_dict
-            save_portfolios()
-            st.rerun()
+    # 3) 계좌 삭제
+    if st.button("🗑 이 계좌 삭제", use_container_width=True):
+        del st.session_state.portfolios[acct]
+        save_portfolios()
+        st.rerun()
 
 
 # ========== 종목 카드 렌더 ==========
@@ -829,23 +840,16 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (한 줄) + 아래 버튼 3개 (수정·관리·삭제)
-        st.markdown(
-            f'<div style="font-size:16px;font-weight:800;color:#fff;margin-bottom:2px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
-        hcols = st.columns(3)
+        # 계좌명 + 관리 버튼 하나 (한 줄)
+        hcols = st.columns([3, 1])
         with hcols[0]:
-            if st.button("수정", key=f"rename_{nm}", use_container_width=True):
-                rename_account_dialog(nm)
+            st.markdown(
+                f'<div style="padding-top:6px;font-size:16px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                unsafe_allow_html=True)
         with hcols[1]:
-            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+            if st.button("⚙ 관리", key=f"manage_{nm}", use_container_width=True):
                 manage_holdings_dialog(nm)
-        with hcols[2]:
-            if st.button("삭제", key=f"del_{nm}", use_container_width=True):
-                del st.session_state.portfolios[nm]
-                save_portfolios()
-                st.rerun()
 
         # 2줄: 통화토글 + 합산체크
         tcols = st.columns([2.5, 0.8])
