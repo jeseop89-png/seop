@@ -26,9 +26,11 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
     font-size: 14px !important; font-weight: 700 !important;
 }
 @media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] { gap: 3px !important; }
+    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 3px !important; }
+    div[data-testid="column"] { min-width: 0 !important; }
 }
 div[data-testid="column"] { min-width: 0 !important; }
+div[data-testid="stButton"] > button { padding-left: 2px !important; padding-right: 2px !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -827,20 +829,21 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (한 줄) + 그 아래 작은 버튼 3개 한 줄
-        st.markdown(
-            f'<div style="font-size:16px;font-weight:800;color:#fff;margin-bottom:2px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
-        hcols = st.columns(3)
+        # 계좌명 + 수정·관리·삭제 (한 줄, 아주 작게)
+        hcols = st.columns([1.4, 0.55, 0.55, 0.55])
         with hcols[0]:
-            if st.button("✏ 이름수정", key=f"rename_{nm}", use_container_width=True):
-                rename_account_dialog(nm)
+            st.markdown(
+                f'<div style="padding-top:6px;font-size:14px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
+                f'<span style="font-size:10px;color:#888;">({len(holdings)})</span></div>',
+                unsafe_allow_html=True)
         with hcols[1]:
-            if st.button("종목관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
+            if st.button("수정", key=f"rename_{nm}", use_container_width=True):
+                rename_account_dialog(nm)
         with hcols[2]:
-            if st.button("계좌삭제", key=f"del_{nm}", use_container_width=True):
+            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                manage_holdings_dialog(nm)
+        with hcols[3]:
+            if st.button("삭제", key=f"del_{nm}", use_container_width=True):
                 del st.session_state.portfolios[nm]
                 save_portfolios()
                 st.rerun()
