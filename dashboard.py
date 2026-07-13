@@ -826,25 +826,35 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌 헤더 1줄: 계좌명 + 이름수정(작게) + 통화토글 + 합산체크
-        hcols = st.columns([1.5, 0.35, 1.1, 0.7])
+        # 계좌 헤더 1줄: 계좌명 + 수정 + 종목관리 + 계좌삭제 (전부 한 줄, 작게)
+        hcols = st.columns([1.5, 0.5, 0.9, 0.9])
         with hcols[0]:
             st.markdown(
-                f'<div style="padding-top:8px;font-size:16px;font-weight:800;color:#fff;">{nm} '
+                f'<div style="padding-top:8px;font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
                 f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with hcols[1]:
             if st.button("✏", key=f"rename_{nm}", use_container_width=True):
                 rename_account_dialog(nm)
         with hcols[2]:
+            if st.button("종목관리", key=f"manage_{nm}", use_container_width=True):
+                manage_holdings_dialog(nm)
+        with hcols[3]:
+            if st.button("계좌삭제", key=f"del_{nm}", use_container_width=True):
+                del st.session_state.portfolios[nm]
+                save_portfolios()
+                st.rerun()
+
+        # 2줄: 통화토글 + 합산체크
+        tcols = st.columns([2.5, 0.8])
+        with tcols[0]:
             if d["has_usd"]:
                 cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
                               key=f"cur_{nm}", label_visibility="collapsed")
                 show_krw = (cm == "₩ 원화")
             else:
                 show_krw = True
-                st.markdown('<div style="padding-top:8px;font-size:12px;color:#888;">원화</div>', unsafe_allow_html=True)
-        with hcols[3]:
+        with tcols[1]:
             st.checkbox("합산", value=True, key=f"sel_{nm}")
 
         # 계좌 요약 (항상 표시)
@@ -861,17 +871,6 @@ else:
                 f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
                 f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
                 f'</div>{fx_line}', unsafe_allow_html=True)
-
-        # 종목 관리 / 계좌 삭제 (작게, 한 줄)
-        bc = st.columns([1, 1])
-        with bc[0]:
-            if st.button("종목 관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
-        with bc[1]:
-            if st.button("계좌 삭제", key=f"del_{nm}", use_container_width=True):
-                del st.session_state.portfolios[nm]
-                save_portfolios()
-                st.rerun()
 
         # 종목 리스트 (항상 펼침)
         if holdings:
