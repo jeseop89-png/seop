@@ -804,8 +804,7 @@ else:
     for nm in names:
         d = compute_account(st.session_state.portfolios[nm], cur_fx)
         acct_data[nm] = d
-        sel = st.session_state.get(f"sel_{nm}", True)
-        if sel and d["total_eval_krw"] > 0:
+        if d["total_eval_krw"] > 0:
             grand_buy += d["total_buy_krw"]
             grand_eval += d["total_eval_krw"]
             grand_fx += d["fx_gain"]
@@ -821,7 +820,7 @@ else:
         ga = "▲" if gp >= 0 else "▼"
         _total_placeholder.markdown(
             '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:16px 18px;margin:8px 0 4px;">'
-            '<div style="font-size:13px;font-weight:800;color:#4dd2ff;margin-bottom:10px;">선택 계좌 총 합산 (원화)</div>'
+            '<div style="font-size:13px;font-weight:800;color:#4dd2ff;margin-bottom:10px;">전체 계좌 총 합산 (원화)</div>'
             '<div style="display:flex;gap:14px 20px;flex-wrap:wrap;">'
             f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">매입금</div><div style="font-size:17px;font-weight:800;color:#fff;">{grand_buy:,.0f}원</div></div>'
             f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">총 평가금</div><div style="font-size:19px;font-weight:800;color:#fff;">{grand_eval:,.0f}원</div></div>'
@@ -841,20 +840,20 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 합산 + 펼치기 (한 줄, 화면 안에 맞춤)
-        ncols = st.columns([1.2, 1, 1])
+        # 계좌명 + 이름수정 버튼 (한 줄)
+        ncols = st.columns([3, 0.7])
         with ncols[0]:
             st.markdown(
-                f'<div style="padding-top:6px;font-size:14px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm}</div>',
+                f'<div style="padding-top:6px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with ncols[1]:
-            st.checkbox("합산", value=True, key=f"sel_{nm}")
-        with ncols[2]:
-            expanded = st.toggle("펼치기", value=False, key=f"exp_{nm}")
+            if st.button("✏ 이름", key=f"rename_{nm}", use_container_width=True):
+                rename_account_dialog(nm)
 
-        # 통화토글 (펼쳤고 해외 있을 때만)
+        # 통화토글 (해외 종목 있을 때만)
         show_krw = True
-        if expanded and d["has_usd"]:
+        if d["has_usd"]:
             cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
@@ -865,7 +864,7 @@ else:
             fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
             fxa = "▲" if fx >= 0 else "▼"
             fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
-                       f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if (d["has_usd"] and expanded) else ""
+                       f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if d["has_usd"] else ""
             scols = st.columns([4, 0.9])
             with scols[0]:
                 st.markdown(
@@ -882,8 +881,8 @@ else:
             if st.button("관리", key=f"manage_{nm}", use_container_width=True):
                 manage_holdings_dialog(nm)
 
-        # 종목 리스트 (펼쳤을 때만)
-        if holdings and expanded:
+        # 종목 리스트 (항상 펼침)
+        if holdings:
             render_holdings(nm, d, cur_fx, show_krw)
             items = [(r["name"], r["eval_amt"] * (cur_fx if r["usd"] else 1)) for r in d["rows"] if r["eval_amt"]]
             if items:
