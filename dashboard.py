@@ -670,6 +670,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
                 return fmt_usd(v, 2)
             return fmt_won(v)
 
+        # 현재비중 색상: 목표 초과=빨강, 부족=파랑
+        if tgt_w > 0:
+            cw_color = "#ff4d4d" if cur_w > tgt_w else "#4d94ff"
+        else:
+            cw_color = "#fff"
+
         # 조정금액
         tgt_amt = tgt_w / 100 * total_eval
         short = tgt_amt - r["eval_amt"]
@@ -698,7 +704,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'</div>'
             # 3행: 목표/현재 비중 + 조정금액
             f'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 10px;margin-top:6px;padding-top:6px;border-top:1px solid #222;font-size:11px;color:#888;">'
-            f'<span>목표 <b style="color:#fff;">{tgt_w:.0f}%</b> / 현재 <b style="color:#fff;">{cur_w:.0f}%</b></span>'
+            f'<span>목표 <b style="color:#fff;">{tgt_w:.0f}%</b> / 현재 <b style="color:{cw_color};">{cur_w:.0f}%</b></span>'
             f'<span>조정 {adj}</span>'
             f'</div></div>',
             unsafe_allow_html=True)
@@ -820,8 +826,8 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌 헤더: 계좌명 + 이름수정 + 통화토글 + 합산체크 (한 줄)
-        hcols = st.columns([1.3, 0.4, 1.2, 0.7])
+        # 계좌 헤더 1줄: 계좌명 + 이름수정(작게) + 통화토글 + 합산체크
+        hcols = st.columns([1.5, 0.35, 1.1, 0.7])
         with hcols[0]:
             st.markdown(
                 f'<div style="padding-top:8px;font-size:16px;font-weight:800;color:#fff;">{nm} '
@@ -862,7 +868,7 @@ else:
             if st.button("종목 관리", key=f"manage_{nm}", use_container_width=True):
                 manage_holdings_dialog(nm)
         with bc[1]:
-            if st.button("계좌삭제", key=f"del_{nm}", use_container_width=True):
+            if st.button("계좌 삭제", key=f"del_{nm}", use_container_width=True):
                 del st.session_state.portfolios[nm]
                 save_portfolios()
                 st.rerun()
