@@ -26,8 +26,7 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
     font-size: 14px !important; font-weight: 700 !important;
 }
 @media (max-width: 900px) {
-    /* 버튼 그룹은 좁은 화면에서도 가로 유지 (세로로 안 쌓이게) */
-    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
+    div[data-testid="stHorizontalBlock"] { gap: 3px !important; }
 }
 div[data-testid="column"] { min-width: 0 !important; }
 </style>
@@ -828,19 +827,19 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌 헤더 1줄: 계좌명 + 수정 + 종목관리 + 계좌삭제 (전부 한 줄, 작게)
-        hcols = st.columns([1.3, 0.4, 0.8, 0.8])
+        # 계좌명 (한 줄) + 그 아래 작은 버튼 3개 한 줄
+        st.markdown(
+            f'<div style="font-size:16px;font-weight:800;color:#fff;margin-bottom:2px;">{nm} '
+            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+            unsafe_allow_html=True)
+        hcols = st.columns(3)
         with hcols[0]:
-            st.markdown(
-                f'<div style="padding-top:6px;font-size:14px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm}</div>',
-                unsafe_allow_html=True)
-        with hcols[1]:
-            if st.button("✏", key=f"rename_{nm}", use_container_width=True):
+            if st.button("✏ 이름수정", key=f"rename_{nm}", use_container_width=True):
                 rename_account_dialog(nm)
-        with hcols[2]:
+        with hcols[1]:
             if st.button("종목관리", key=f"manage_{nm}", use_container_width=True):
                 manage_holdings_dialog(nm)
-        with hcols[3]:
+        with hcols[2]:
             if st.button("계좌삭제", key=f"del_{nm}", use_container_width=True):
                 del st.session_state.portfolios[nm]
                 save_portfolios()
