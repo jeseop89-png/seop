@@ -848,47 +848,47 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 펼치기 + 합산 (한 줄)
-        ncols = st.columns([1.5, 1, 0.8])
+        # 계좌명 + 합산 + 펼치기 (한 줄)
+        ncols = st.columns([1.5, 0.8, 1])
         with ncols[0]:
             st.markdown(
                 f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
                 f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with ncols[1]:
-            expanded = st.toggle("펼치기", value=False, key=f"exp_{nm}")
-        with ncols[2]:
             st.checkbox("합산", value=True, key=f"sel_{nm}")
+        with ncols[2]:
+            expanded = st.toggle("펼치기", value=False, key=f"exp_{nm}")
 
-        # 관리 버튼 (아래, 작게) + 통화토글(펼쳤을 때)
+        # 통화토글 (펼쳤고 해외 있을 때만)
         show_krw = True
         if expanded and d["has_usd"]:
-            mcols = st.columns([1, 2.5])
-            with mcols[0]:
-                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                    manage_holdings_dialog(nm)
-            with mcols[1]:
-                cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
-                              key=f"cur_{nm}", label_visibility="collapsed")
-                show_krw = (cm == "₩ 원화")
-        else:
-            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
+            cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
+                          key=f"cur_{nm}", label_visibility="collapsed")
+            show_krw = (cm == "₩ 원화")
 
-        # 계좌 요약 (항상 표시)
+        # 계좌 요약 + 관리 버튼 (손익률 옆)
         if buy_krw > 0:
             fx = d["fx_gain"]
             fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
             fxa = "▲" if fx >= 0 else "▼"
             fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
                        f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if (d["has_usd"] and expanded) else ""
-            st.markdown(
-                '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 10px;margin:6px 0;">'
-                f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">평가금</span><br><b style="color:#fff;font-size:13px;">{eval_krw:,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
-                f'</div>{fx_line}', unsafe_allow_html=True)
+            scols = st.columns([4, 0.9])
+            with scols[0]:
+                st.markdown(
+                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
+                    f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
+                    f'<div><span style="font-size:11px;color:#888;">평가금</span><br><b style="color:#fff;font-size:13px;">{eval_krw:,.0f}원</b></div>'
+                    f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
+                    f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
+                    f'</div>{fx_line}', unsafe_allow_html=True)
+            with scols[1]:
+                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                    manage_holdings_dialog(nm)
+        else:
+            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                manage_holdings_dialog(nm)
 
         # 종목 리스트 (펼쳤을 때만)
         if holdings and expanded:
