@@ -13,10 +13,10 @@ st.set_page_config(page_title="내 포트폴리오", layout="centered", initial_
 st.markdown("""
 <style>
 div[data-testid="stButton"] > button {
-    border-radius: 8px; border: 1px solid #2a2a2a;
+    border-radius: 7px; border: 1px solid #2a2a2a;
     background: linear-gradient(180deg, #1c1c1c, #151515);
-    color: #e0e0e0; padding: 5px 10px; font-weight: 600; font-size: 12px;
-    transition: all 0.15s ease; min-height: 0;
+    color: #e0e0e0; padding: 4px 4px; font-weight: 600; font-size: 11px;
+    transition: all 0.15s ease; min-height: 0; white-space: nowrap;
 }
 div[data-testid="stButton"] > button:hover {
     border-color: #4dd2ff; color: #ffffff;
@@ -26,8 +26,10 @@ div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
     font-size: 14px !important; font-weight: 700 !important;
 }
 @media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; row-gap: 8px; }
+    /* 버튼 그룹은 좁은 화면에서도 가로 유지 (세로로 안 쌓이게) */
+    div[data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 4px !important; }
 }
+div[data-testid="column"] { min-width: 0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -827,11 +829,10 @@ else:
         pa = "▲" if profit >= 0 else "▼"
 
         # 계좌 헤더 1줄: 계좌명 + 수정 + 종목관리 + 계좌삭제 (전부 한 줄, 작게)
-        hcols = st.columns([1.5, 0.5, 0.9, 0.9])
+        hcols = st.columns([1.3, 0.4, 0.8, 0.8])
         with hcols[0]:
             st.markdown(
-                f'<div style="padding-top:8px;font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
-                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                f'<div style="padding-top:6px;font-size:14px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm}</div>',
                 unsafe_allow_html=True)
         with hcols[1]:
             if st.button("✏", key=f"rename_{nm}", use_container_width=True):
