@@ -262,6 +262,17 @@ def get_high_yield_spread():
     return {"value": value}
 
 
+@st.cache_data(ttl=3600 * 2, max_entries=5)
+def get_treasury_yields():
+    """미국 국채 2년물/10년물 금리(%) - FRED 실제 값."""
+    y2 = fetch_fred_series("DGS2")
+    y10 = fetch_fred_series("DGS10")
+    return {
+        "y2": y2[-1][1] if y2 else None,
+        "y10": y10[-1][1] if y10 else None,
+    }
+
+
 @st.cache_data(ttl=300, max_entries=5)
 def get_cnn_fear_greed():
     try:
@@ -640,20 +651,24 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:8px;">'
-            f'<div style="display:flex;justify-content:space-between;margin-bottom:8px;">'
-            f'<span style="font-size:15px;font-weight:800;color:#fff;">{r["name"]} <span style="font-size:11px;color:#888;">({r["ticker"]})</span></span>'
-            f'<span style="font-size:13px;color:#aaa;">수량&nbsp;&nbsp;<b style="color:#fff;">{r["qty"]:,.0f}</b></span></div>'
-            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:13px;">'
-            f'<div><span style="color:#888;font-size:11px;">신호</span><br>{rsi_html}</div>'
-            f'<div><span style="color:#888;font-size:11px;">52주고점대비</span><br>{drop_html}</div>'
-            f'<div><span style="color:#888;font-size:11px;">현재가</span><br><b>{money(price, True) if price else "-"}</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">평단가</span><br><b>{money(r["avg_price"], True)}</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">매수금</span><br><b>{money(r["buy_amt"])}</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">평가금</span><br><b>{money(r["eval_amt"])}</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">손익금</span><br><b style="color:{pc};">{pa} {money(abs(profit))}</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">손익률</span><br><b style="color:{pc};">{pa} {abs(profit_pct):.1f}%</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">비중/목표</span><br><b>{cur_w:.0f}% / {tgt_w:.0f}%</b></div>'
-            f'<div><span style="color:#888;font-size:11px;">조정필요</span><br>{adj}</div>'
+            # 1행: 종목명 / 수익금 / 평가금액 / 현재가
+            f'<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:2px 8px;align-items:end;">'
+            f'<div style="font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{r["name"]}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};">{pa} {money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#4dd2ff;">{money(price, True) if price else "-"}</div>'
+            # 2행: 수량 / 수익률 / 매입금액 / 평단가
+            f'<div style="font-size:12px;color:#888;">{r["ticker"]} · {r["qty"]:,.0f}주</div>'
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:12px;color:#aaa;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;font-size:12px;color:#aaa;">{money(r["avg_price"], True)}</div>'
+            f'</div>'
+            # 하단 보조정보: 52주고점대비 · 신호 · 비중/목표 · 조정
+            f'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-top:8px;padding-top:8px;border-top:1px solid #222;font-size:11px;">'
+            f'<span style="color:#888;">52주고점 {drop_html}</span>'
+            f'<span style="color:#888;">신호 {rsi_html}</span>'
+            f'<span style="color:#888;">비중 <b style="color:#fff;">{cur_w:.0f}%</b>/{tgt_w:.0f}%</span>'
+            f'<span style="color:#888;">조정 {adj}</span>'
             f'</div></div>',
             unsafe_allow_html=True)
         c1, c2 = st.columns(2)
@@ -707,21 +722,21 @@ def build_donut(items, size=160):
 if "portfolios" not in st.session_state:
     st.session_state.portfolios = load_portfolios()
 
-st.markdown("<h4 style='margin:0 0 10px;'>📈 시장 지표</h4>", unsafe_allow_html=True)
-render_market()
+# ===== 맨 위: 계좌 총합산 (그 자리는 아래 계산 후 채움) =====
+_total_placeholder = st.empty()
 
-st.markdown("<div style='margin-top:18px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 tc = st.columns([3, 1])
 with tc[0]:
     st.markdown("<h3 style='margin:0;padding:6px 0;font-weight:800;'>"
                 "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
-                "내 포트폴리오</h3>", unsafe_allow_html=True)
+                "포트폴리오</h3>", unsafe_allow_html=True)
 with tc[1]:
-    if st.button("＋ 계좌", use_container_width=True):
+    if st.button("＋ 생성", use_container_width=True):
         create_account_dialog()
 
 if not st.session_state.portfolios:
-    st.info("아직 계좌가 없습니다. 오른쪽 위 '＋ 계좌'로 만들어보세요.")
+    st.info("아직 계좌가 없습니다. 오른쪽 위 '＋ 생성'으로 만들어보세요.")
 else:
     cur_fx = get_usd_krw()
     names = list(st.session_state.portfolios.keys())
@@ -742,30 +757,21 @@ else:
                 ev = r["eval_amt"] * cur_fx if r["usd"] else r["eval_amt"]
                 grand_holdings.append((r["name"], ev))
 
-    # 2단계: 총합산 (4개 숫자 항상 + 도넛 접기)
+    # 2단계: 총합산 → 맨 위 placeholder에 렌더 (매입금/총평가금/수익금/손익률)
     if grand_eval > 0:
         gp = grand_eval - grand_buy
         gpp = (gp / grand_buy * 100) if grand_buy else 0
         gc = "#ff4d4d" if gp >= 0 else "#4d94ff"
         ga = "▲" if gp >= 0 else "▼"
-        st.markdown(
-            '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:16px 18px;margin:8px 0 10px;">'
-            '<div style="font-size:14px;font-weight:800;color:#4dd2ff;margin-bottom:10px;">선택 계좌 총 합산 (원화)</div>'
-            '<div style="display:flex;gap:14px 24px;flex-wrap:wrap;">'
-            f'<div style="flex:1 1 120px;"><div style="font-size:11px;color:#888;">총 매수금액</div><div style="font-size:17px;font-weight:800;color:#fff;">{grand_buy:,.0f}원</div></div>'
-            f'<div style="flex:1 1 120px;"><div style="font-size:11px;color:#888;">총 평가금액</div><div style="font-size:19px;font-weight:800;color:#fff;">{grand_eval:,.0f}원</div></div>'
-            f'<div style="flex:1 1 120px;"><div style="font-size:11px;color:#888;">총 손익</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gp):,.0f}원</div></div>'
-            f'<div style="flex:1 1 120px;"><div style="font-size:11px;color:#888;">총 손익률</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gpp):.1f}%</div></div>'
+        _total_placeholder.markdown(
+            '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:16px 18px;margin:8px 0 4px;">'
+            '<div style="font-size:13px;font-weight:800;color:#4dd2ff;margin-bottom:10px;">선택 계좌 총 합산 (원화)</div>'
+            '<div style="display:flex;gap:14px 20px;flex-wrap:wrap;">'
+            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">매입금</div><div style="font-size:17px;font-weight:800;color:#fff;">{grand_buy:,.0f}원</div></div>'
+            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">총 평가금</div><div style="font-size:19px;font-weight:800;color:#fff;">{grand_eval:,.0f}원</div></div>'
+            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">수익금</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gp):,.0f}원</div></div>'
+            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">손익률</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gpp):.1f}%</div></div>'
             '</div></div>', unsafe_allow_html=True)
-        # 종목별 도넛 (접기)
-        merged = {}
-        for nm, ev in grand_holdings:
-            merged[nm] = merged.get(nm, 0) + ev
-        if merged:
-            with st.expander("종목별 비중 보기 (전체 합산)"):
-                st.markdown(build_donut(list(merged.items())), unsafe_allow_html=True)
-    else:
-        st.info("아래에서 계좌를 선택하면 총 합산이 표시됩니다.")
 
     st.markdown("<div style='font-size:13px;color:#888;margin:12px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
