@@ -840,31 +840,36 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (넓게) + 관리(작게) + 펼치기 토글
-        hcols = st.columns([2.6, 0.6, 0.8])
+        # 계좌명 (넓게) + 펼치기 토글
+        hcols = st.columns([3, 0.9])
         with hcols[0]:
             st.markdown(
-                f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm} '
+                f'<div style="padding-top:6px;font-size:15px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
                 f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with hcols[1]:
-            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
-        with hcols[2]:
             expanded = st.toggle("펼치기", value=False, key=f"exp_{nm}")
 
-        # 합산 체크 (항상) + 통화토글(펼쳤을 때만)
+        # 관리 버튼 + 합산 체크 (+ 펼쳤을 때 통화토글)
         show_krw = True
         if expanded and d["has_usd"]:
-            tcols = st.columns([2.5, 0.8])
-            with tcols[0]:
+            mcols = st.columns([1, 2, 0.8])
+            with mcols[0]:
+                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                    manage_holdings_dialog(nm)
+            with mcols[1]:
                 cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
                               key=f"cur_{nm}", label_visibility="collapsed")
                 show_krw = (cm == "₩ 원화")
-            with tcols[1]:
+            with mcols[2]:
                 st.checkbox("합산", value=True, key=f"sel_{nm}")
         else:
-            st.checkbox("합산", value=True, key=f"sel_{nm}")
+            mcols = st.columns([1, 1])
+            with mcols[0]:
+                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
+                    manage_holdings_dialog(nm)
+            with mcols[1]:
+                st.checkbox("합산", value=True, key=f"sel_{nm}")
 
         # 계좌 요약 (항상 표시)
         if buy_krw > 0:
