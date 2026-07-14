@@ -15,8 +15,8 @@ st.markdown("""
 div[data-testid="stButton"] > button {
     border-radius: 7px; border: 1px solid #2a2a2a;
     background: linear-gradient(180deg, #1c1c1c, #151515);
-    color: #e0e0e0; padding: 4px 4px; font-weight: 600; font-size: 11px;
-    transition: all 0.15s ease; min-height: 0; white-space: nowrap;
+    color: #e0e0e0; padding: 4px 12px; font-weight: 600; font-size: 12px;
+    transition: all 0.15s ease; min-height: 0; white-space: nowrap; width: auto;
 }
 div[data-testid="stButton"] > button:hover {
     border-color: #4dd2ff; color: #ffffff;
@@ -770,7 +770,7 @@ with tc[0]:
                 "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
                 "포트폴리오</h3>", unsafe_allow_html=True)
 with tc[1]:
-    if st.button("＋ 생성", use_container_width=True):
+    if st.button("＋ 생성", key="create_acct"):
         create_account_dialog()
 
 if not st.session_state.portfolios:
@@ -822,11 +822,16 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (한 줄)
-        st.markdown(
-            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin-bottom:2px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
+        # 계좌명 + 관리 버튼 (작게, 오른쪽)
+        nc = st.columns([3, 0.7])
+        with nc[0]:
+            st.markdown(
+                f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                unsafe_allow_html=True)
+        with nc[1]:
+            if st.button("관리", key=f"manage_{nm}"):
+                manage_holdings_dialog(nm)
 
         # 통화토글 (해외 종목 있을 때만)
         show_krw = True
@@ -835,28 +840,20 @@ else:
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
 
-        # 계좌 요약 + 관리 버튼 (손익률 옆)
+        # 계좌 요약
         if buy_krw > 0:
             fx = d["fx_gain"]
             fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
             fxa = "▲" if fx >= 0 else "▼"
             fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
                        f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if d["has_usd"] else ""
-            scols = st.columns([5, 0.7])
-            with scols[0]:
-                st.markdown(
-                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
-                    f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
-                    f'<div><span style="font-size:11px;color:#888;">평가금</span><br><b style="color:#fff;font-size:13px;">{eval_krw:,.0f}원</b></div>'
-                    f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
-                    f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
-                    f'</div>{fx_line}', unsafe_allow_html=True)
-            with scols[1]:
-                if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                    manage_holdings_dialog(nm)
-        else:
-            if st.button("관리", key=f"manage_{nm}", use_container_width=True):
-                manage_holdings_dialog(nm)
+            st.markdown(
+                '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
+                f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
+                f'<div><span style="font-size:11px;color:#888;">평가금</span><br><b style="color:#fff;font-size:13px;">{eval_krw:,.0f}원</b></div>'
+                f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
+                f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
+                f'</div>{fx_line}', unsafe_allow_html=True)
 
         # 종목 리스트 (항상 펼침)
         if holdings:
