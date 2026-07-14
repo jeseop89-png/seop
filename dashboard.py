@@ -764,12 +764,11 @@ if _pending_edit:
 _total_placeholder = st.empty()
 
 st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-tc = st.columns([3, 1])
-with tc[0]:
-    st.markdown("<h3 style='margin:0;padding:6px 0;font-weight:800;'>"
-                "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
-                "포트폴리오</h3>", unsafe_allow_html=True)
-with tc[1]:
+st.markdown("<h3 style='margin:0 0 8px 0;padding:0;font-weight:800;'>"
+            "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
+            "포트폴리오</h3>", unsafe_allow_html=True)
+_gc = st.columns([1, 2])
+with _gc[0]:
     if st.button("＋ 생성", key="create_acct"):
         create_account_dialog()
 
@@ -822,14 +821,14 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 관리 버튼 (작게, 오른쪽)
-        nc = st.columns([3, 0.7])
-        with nc[0]:
-            st.markdown(
-                f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
-                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-                unsafe_allow_html=True)
-        with nc[1]:
+        # 계좌명 (한 줄)
+        st.markdown(
+            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin:4px 0 6px;">{nm} '
+            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+            unsafe_allow_html=True)
+        # 관리 버튼 (작게, 왼쪽)
+        _mc = st.columns([1, 3])
+        with _mc[0]:
             if st.button("관리", key=f"manage_{nm}"):
                 manage_holdings_dialog(nm)
 
