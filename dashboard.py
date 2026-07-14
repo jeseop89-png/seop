@@ -295,9 +295,62 @@ def is_korean(ticker):
     return ticker.endswith(".KS") or ticker.endswith(".KQ")
 
 
+# 암호화폐 티커 판별 (BTC, 비트코인, BTCUSDT, BINANCE:BTCUSDT 등)
+CRYPTO_ALIASES = {
+    "BTC": "BTCUSDT", "비트코인": "BTCUSDT", "BITCOIN": "BTCUSDT", "XBT": "BTCUSDT",
+    "BTCUSD": "BTCUSDT", "BTC-USD": "BTCUSDT", "BTCUSDT": "BTCUSDT",
+    "ETH": "ETHUSDT", "이더리움": "ETHUSDT", "ETHEREUM": "ETHUSDT", "ETHUSD": "ETHUSDT",
+    "SOL": "SOLUSDT", "XRP": "XRPUSDT", "리플": "XRPUSDT", "DOGE": "DOGEUSDT",
+}
+
+
+def crypto_symbol(ticker):
+    t = ticker.upper().replace("BINANCE:", "").strip()
+    if t in CRYPTO_ALIASES:
+        return CRYPTO_ALIASES[t]
+    if ticker in CRYPTO_ALIASES:
+        return CRYPTO_ALIASES[ticker]
+    if t.endswith("USDT"):
+        return t
+    return None
+
+
+@st.cache_data(ttl=60, max_entries=30)
+def get_crypto_price(ticker):
+    """암호화폐 현재가 (Binance 공개 API, USDT 기준 → 달러로 취급)."""
+    sym = crypto_symbol(ticker)
+    if not sym:
+        return None
+    try:
+        res = requests.get("https://api.binance.com/api/v3/ticker/price",
+                           params={"symbol": sym}, timeout=5)
+        d = res.json()
+        if d.get("price"):
+            return float(d["price"])
+    except Exception:
+        pass
+    # 폴백: Coinbase
+    try:
+        base = sym.replace("USDT", "")
+        res = requests.get(f"https://api.coinbase.com/v2/prices/{base}-USD/spot", timeout=5)
+        d = res.json()
+        amt = d.get("data", {}).get("amount")
+        if amt:
+            return float(amt)
+    except Exception:
+        pass
+    return None
+
+
+def is_crypto(ticker):
+    return crypto_symbol(ticker) is not None
+
+
 def get_current_price(ticker):
     if is_korean(ticker):
         return get_naver_domestic_price(ticker)
+    if is_crypto(ticker):
+        return get_crypto_price(ticker)
     q = get_finnhub_quote(ticker)
     return q["current"] if q else None
 
@@ -684,18 +737,21 @@ def render_holdings(acct, data, cur_fx, show_krw):
                 return fmt_usd(v, 2)
             return fmt_won(v)
 
-        # 종목명 길이에 따라 글자 크기 조절 (2줄 방지)
+        # 종목명 길이에 따라 글자 크기 조절
         name_len = len(r["name"])
-        name_size = 14 if name_len <= 10 else 12 if name_len <= 16 else 10
+        name_size = 13 if name_len <= 10 else 11 if name_len <= 16 else 10
+        # 현재비중 색상: 목표 초과=빨강, 부족=파랑
+        cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명: 한 줄, 길면 크기 축소 (잘리면 ...)
+            # 종목명 옆에 수량, 아래에 목표/현재 비중
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:8px;overflow:hidden;">'
-            f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:2px;">{r["qty"]:,.0f}주</div></div>'
-            # 1행 숫자: 수익금 / 평가금 / 현재가 (세로선 구분)
+            f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]} '
+            f'<span style="font-size:11px;font-weight:400;color:#aaa;">{r["qty"]:,.0f}주</span></div>'
+            f'<div style="font-size:11px;font-weight:400;color:#888;margin-top:3px;">목표 <b style="color:#ccc;">{tgt_w:.0f}%</b> / 현재 <b style="color:{cw_color};">{cur_w:.0f}%</b></div></div>'
+            # 1행 숫자: 수익금 / 평가금 / 현재가
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["eval_amt"])}</div>'
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:#4dd2ff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(price, True) if price else "-"}</div>'
@@ -760,20 +816,17 @@ _pending_edit = st.session_state.pop("_open_edit", None)
 if _pending_edit:
     edit_stock_dialog(_pending_edit[0], _pending_edit[1])
 
-# ===== 맨 위: 계좌 총합산 (그 자리는 아래 계산 후 채움) =====
-_total_placeholder = st.empty()
-
-st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
-st.markdown("<h3 style='margin:0 0 8px 0;padding:0;font-weight:800;'>"
-            "<span style='display:inline-block;width:5px;height:22px;background:linear-gradient(180deg,#4dd2ff,#4d94ff);border-radius:2px;margin-right:10px;vertical-align:-3px;'></span>"
-            "포트폴리오</h3>", unsafe_allow_html=True)
-_gc = st.columns([1, 2])
-with _gc[0]:
-    if st.button("＋ 생성", key="create_acct"):
+# ===== 맨 위: 합산 금액 + [+] 버튼 (포트폴리오 생성) =====
+_top = st.columns([4, 0.7])
+with _top[0]:
+    _total_placeholder = st.empty()
+with _top[1]:
+    st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
+    if st.button("＋", key="create_acct", help="포트폴리오 생성"):
         create_account_dialog()
 
 if not st.session_state.portfolios:
-    st.info("아직 계좌가 없습니다. 오른쪽 위 '＋ 생성'으로 만들어보세요.")
+    st.info("계좌가 없습니다. 위 '＋' 버튼으로 만들어보세요.")
 else:
     cur_fx = get_usd_krw()
     names = list(st.session_state.portfolios.keys())
@@ -793,21 +846,17 @@ else:
                 ev = r["eval_amt"] * cur_fx if r["usd"] else r["eval_amt"]
                 grand_holdings.append((r["name"], ev))
 
-    # 2단계: 총합산 → 맨 위 placeholder에 렌더 (매입금/총평가금/수익금/손익률)
+    # 2단계: 총합산 → 맨 위 placeholder (금액만 크게)
     if grand_eval > 0:
         gp = grand_eval - grand_buy
         gpp = (gp / grand_buy * 100) if grand_buy else 0
         gc = "#ff4d4d" if gp >= 0 else "#4d94ff"
         ga = "▲" if gp >= 0 else "▼"
         _total_placeholder.markdown(
-            '<div style="background:linear-gradient(135deg,#151d2a,#0f1620);border:1px solid #2a3a52;border-radius:12px;padding:16px 18px;margin:8px 0 4px;">'
-            '<div style="font-size:13px;font-weight:800;color:#4dd2ff;margin-bottom:10px;">전체 계좌 총 합산 (원화)</div>'
-            '<div style="display:flex;gap:14px 20px;flex-wrap:wrap;">'
-            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">매입금</div><div style="font-size:17px;font-weight:800;color:#fff;">{grand_buy:,.0f}원</div></div>'
-            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">총 평가금</div><div style="font-size:19px;font-weight:800;color:#fff;">{grand_eval:,.0f}원</div></div>'
-            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">수익금</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gp):,.0f}원</div></div>'
-            f'<div style="flex:1 1 110px;"><div style="font-size:11px;color:#888;">손익률</div><div style="font-size:17px;font-weight:800;color:{gc};">{ga} {abs(gpp):.1f}%</div></div>'
-            '</div></div>', unsafe_allow_html=True)
+            '<div style="padding:8px 4px 0;">'
+            f'<div style="font-size:28px;font-weight:800;color:#fff;line-height:1.1;">{grand_eval:,.0f}원</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{gc};margin-top:4px;">{ga} {abs(gp):,.0f}원 ({ga}{abs(gpp):.1f}%)</div>'
+            '</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='font-size:13px;color:#888;margin:12px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
@@ -821,15 +870,15 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (한 줄)
-        st.markdown(
-            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin:4px 0 6px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
-        # 관리 버튼 (작게, 왼쪽)
-        _mc = st.columns([1, 3])
-        with _mc[0]:
-            if st.button("관리", key=f"manage_{nm}"):
+        # 계좌명 + [+] 버튼 (계좌 관리)
+        nc = st.columns([4, 0.7])
+        with nc[0]:
+            st.markdown(
+                f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
+                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                unsafe_allow_html=True)
+        with nc[1]:
+            if st.button("＋", key=f"manage_{nm}", help="계좌 관리"):
                 manage_holdings_dialog(nm)
 
         # 통화토글 (해외 종목 있을 때만)
@@ -857,9 +906,5 @@ else:
         # 종목 리스트 (항상 펼침)
         if holdings:
             render_holdings(nm, d, cur_fx, show_krw)
-            items = [(r["name"], r["eval_amt"] * (cur_fx if r["usd"] else 1)) for r in d["rows"] if r["eval_amt"]]
-            if items:
-                with st.expander("📊 종목별 비중"):
-                    st.markdown(build_donut(items, size=150), unsafe_allow_html=True)
 
         st.markdown("<div style='height:10px;border-bottom:1px solid #2a2a2a;margin-bottom:12px;'></div>", unsafe_allow_html=True)
