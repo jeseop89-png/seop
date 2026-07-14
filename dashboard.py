@@ -739,26 +739,25 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         # 종목명 길이에 따라 글자 크기 조절
         name_len = len(r["name"])
-        name_size = 13 if name_len <= 10 else 11 if name_len <= 16 else 10
+        name_size = 13 if name_len <= 9 else 11 if name_len <= 14 else 10
         # 현재비중 색상: 목표 초과=빨강, 부족=파랑
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명 옆에 수량, 아래에 목표/현재 비중
-            f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:8px;overflow:hidden;">'
-            f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]} '
-            f'<span style="font-size:11px;font-weight:400;color:#aaa;">{r["qty"]:,.0f}주</span></div>'
-            f'<div style="font-size:11px;font-weight:400;color:#888;margin-top:3px;">목표 <b style="color:#ccc;">{tgt_w:.0f}%</b> / 현재 <b style="color:{cw_color};">{cur_w:.0f}%</b></div></div>'
+            f'<div style="display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
+            # 종목명 옆에 수량, 아래에 목표/현재 비중 (한 줄 유지)
+            f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
+            f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
+            f'<div style="font-size:11px;font-weight:400;color:#aaa;margin-top:2px;white-space:nowrap;">{r["qty"]:,.0f}주 · <span style="color:#888;">목표<b style="color:#ccc;">{tgt_w:.0f}</b>/현재<b style="color:{cw_color};">{cur_w:.0f}</b></span></div></div>'
             # 1행 숫자: 수익금 / 평가금 / 현재가
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#4dd2ff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(price, True) if price else "-"}</div>'
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:#4dd2ff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(price, True) if price else "-"}</div>'
             # 2행 숫자: 수익률 / 매입금 / 평단가
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["avg_price"], True)}</div>'
+            f'<div style="text-align:right;font-size:11px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:11px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;font-size:11px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["avg_price"], True)}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -817,12 +816,12 @@ if _pending_edit:
     edit_stock_dialog(_pending_edit[0], _pending_edit[1])
 
 # ===== 맨 위: 합산 금액 + [+] 버튼 (포트폴리오 생성) =====
-_top = st.columns([4, 0.7])
+_top = st.columns([3, 1])
 with _top[0]:
     _total_placeholder = st.empty()
 with _top[1]:
-    st.markdown("<div style='height:20px;'></div>", unsafe_allow_html=True)
-    if st.button("＋", key="create_acct", help="포트폴리오 생성"):
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    if st.button("＋ 계좌", key="create_acct", help="포트폴리오 생성"):
         create_account_dialog()
 
 if not st.session_state.portfolios:
@@ -871,14 +870,14 @@ else:
         pa = "▲" if profit >= 0 else "▼"
 
         # 계좌명 + [+] 버튼 (계좌 관리)
-        nc = st.columns([4, 0.7])
+        nc = st.columns([3, 1])
         with nc[0]:
             st.markdown(
                 f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
                 f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                 unsafe_allow_html=True)
         with nc[1]:
-            if st.button("＋", key=f"manage_{nm}", help="계좌 관리"):
+            if st.button("＋ 관리", key=f"manage_{nm}", help="계좌 관리"):
                 manage_holdings_dialog(nm)
 
         # 통화토글 (해외 종목 있을 때만)
