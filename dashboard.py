@@ -684,29 +684,16 @@ def render_holdings(acct, data, cur_fx, show_krw):
                 return fmt_usd(v, 2)
             return fmt_won(v)
 
-        # 현재비중 색상: 목표 초과=빨강, 부족=파랑
-        if tgt_w > 0:
-            cw_color = "#ff4d4d" if cur_w > tgt_w else "#4d94ff"
-        else:
-            cw_color = "#fff"
-
-        # 조정금액
-        tgt_amt = tgt_w / 100 * total_eval
-        short = tgt_amt - r["eval_amt"]
-        if tgt_w == 0:
-            adj = '<span style="color:#666;">-</span>'
-        elif abs(short) < total_eval * 0.005:
-            adj = '<span style="color:#888;">적정</span>'
-        elif short > 0:
-            adj = f'<b style="color:#ff4d4d;">매수 {money(short)}</b>'
-        else:
-            adj = f'<b style="color:#4d94ff;">매도 {money(abs(short))}</b>'
+        # 종목명 길이에 따라 글자 크기 조절 (2줄 방지)
+        name_len = len(r["name"])
+        name_size = 14 if name_len <= 10 else 12 if name_len <= 16 else 10
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명: 2행에 걸쳐 세로 중앙
-            f'<div style="grid-row:span 2;font-size:14px;font-weight:800;color:#fff;word-break:break-all;line-height:1.25;padding-right:8px;">{r["name"]}'
+            # 종목명: 한 줄, 길면 크기 축소 (잘리면 ...)
+            f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:8px;overflow:hidden;">'
+            f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:2px;">{r["qty"]:,.0f}주</div></div>'
             # 1행 숫자: 수익금 / 평가금 / 현재가 (세로선 구분)
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
@@ -716,11 +703,6 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
             f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["buy_amt"])}</div>'
             f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["avg_price"], True)}</div>'
-            f'</div>'
-            # 하단: 목표/현재 비중 + 조정금액
-            f'<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 10px;margin-top:6px;padding-top:6px;border-top:1px solid #222;font-size:11px;color:#888;">'
-            f'<span>목표 <b style="color:#fff;">{tgt_w:.0f}%</b> / 현재 <b style="color:{cw_color};">{cur_w:.0f}%</b></span>'
-            f'<span>조정 {adj}</span>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -840,16 +822,11 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + 이름수정 버튼 (한 줄)
-        ncols = st.columns([3, 0.7])
-        with ncols[0]:
-            st.markdown(
-                f'<div style="padding-top:6px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
-                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-                unsafe_allow_html=True)
-        with ncols[1]:
-            if st.button("✏ 이름", key=f"rename_{nm}", use_container_width=True):
-                rename_account_dialog(nm)
+        # 계좌명 (한 줄)
+        st.markdown(
+            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin-bottom:2px;">{nm} '
+            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+            unsafe_allow_html=True)
 
         # 통화토글 (해외 종목 있을 때만)
         show_krw = True
@@ -865,7 +842,7 @@ else:
             fxa = "▲" if fx >= 0 else "▼"
             fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
                        f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if d["has_usd"] else ""
-            scols = st.columns([4, 0.9])
+            scols = st.columns([5, 0.7])
             with scols[0]:
                 st.markdown(
                     '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
