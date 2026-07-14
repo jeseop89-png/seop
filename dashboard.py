@@ -571,6 +571,8 @@ def compute_account(holdings, cur_fx):
         "has_usd": has_usd,
         "usd_buy": sum(r["buy_amt"] for r in rows if r["usd"]),
         "usd_eval": sum(r["eval_amt"] for r in rows if r["usd"]),
+        "usd_buy_krw": usd_buy_krw,
+        "usd_eval_krw": usd_eval_krw,
     }
 
 
@@ -869,14 +871,14 @@ else:
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 + [+] 버튼 (계좌 관리)
-        nc = st.columns([3, 1])
-        with nc[0]:
-            st.markdown(
-                f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;word-break:break-all;">{nm} '
-                f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-                unsafe_allow_html=True)
-        with nc[1]:
+        # 계좌명 (한 줄)
+        st.markdown(
+            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin:4px 0 4px;">{nm} '
+            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+            unsafe_allow_html=True)
+        # 관리 버튼 (아래 줄, 작게 왼쪽)
+        _bc = st.columns([1, 2.5])
+        with _bc[0]:
             if st.button("＋ 관리", key=f"manage_{nm}", help="계좌 관리"):
                 manage_holdings_dialog(nm)
 
@@ -892,8 +894,14 @@ else:
             fx = d["fx_gain"]
             fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
             fxa = "▲" if fx >= 0 else "▼"
-            fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
-                       f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b></div>') if d["has_usd"] else ""
+            # 환차손익 + 평균 매수환율/현재환율 표시
+            fx_line = ""
+            if d["has_usd"]:
+                usd_buy = d.get("usd_buy", 0)
+                avg_buy_fx = (d["usd_buy_krw"] / usd_buy) if usd_buy and d.get("usd_buy_krw") else cur_fx
+                fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
+                           f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b>'
+                           f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
             st.markdown(
                 '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
                 f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
