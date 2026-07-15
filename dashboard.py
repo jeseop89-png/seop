@@ -743,21 +743,39 @@ def render_holdings(acct, data, cur_fx, show_krw):
         name_size = 14 if name_len <= 9 else 12 if name_len <= 14 else 10
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
+        # 초과/부족 라벨 + 금액
+        if tgt_w == 0:
+            status_txt = ""
+            adj_txt = ""
+        else:
+            tgt_amt = tgt_w / 100 * total_eval
+            diff = r["eval_amt"] - tgt_amt  # +면 초과, -면 부족
+            if cur_w > tgt_w:
+                status_txt = '<span style="color:#ff4d4d;font-size:10px;font-weight:700;">초과</span>'
+                adj_txt = f'<div style="font-size:10px;color:#ff4d4d;white-space:nowrap;">+{money(abs(diff))}</div>'
+            elif cur_w < tgt_w:
+                status_txt = '<span style="color:#4d94ff;font-size:10px;font-weight:700;">부족</span>'
+                adj_txt = f'<div style="font-size:10px;color:#4d94ff;white-space:nowrap;">-{money(abs(diff))}</div>'
+            else:
+                status_txt = '<span style="color:#888;font-size:10px;">적정</span>'
+                adj_txt = ""
+
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
             # 종목명 + 수량
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:3px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
             # 수익금 / 평가금 / 목표비중
-            f'<div style="text-align:right;font-size:14px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:14px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:15px;font-weight:800;color:#ccc;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
-            # 수익률 / 매입금 / 현재비중
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:13px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:right;font-size:15px;font-weight:800;color:{cw_color};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{cur_w:.0f}%</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:right;font-size:14px;font-weight:800;color:#ccc;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
+            # 수익률 / 매입금 / 현재비중+초과부족
+            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">'
+            f'<span style="font-size:14px;font-weight:800;color:{cw_color};">{cur_w:.0f}%</span> {status_txt}{adj_txt}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
