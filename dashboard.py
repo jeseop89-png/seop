@@ -714,12 +714,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
     # 컬럼 헤더
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:2px 8px;'
+        '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 1fr;gap:2px 0;'
         'padding:4px 8px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
-        '<div>종목 / 수량</div>'
+        '<div>종목 / 수량 / 평단</div>'
         '<div style="text-align:right;">수익금 / 수익률</div>'
         '<div style="text-align:right;">평가금 / 매입금</div>'
-        '<div style="text-align:right;">목표 / 현재</div>'
+        '<div style="text-align:center;">목표 / 현재</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -761,21 +761,22 @@ def render_holdings(acct, data, cur_fx, show_krw):
                 adj_txt = ""
 
         st.markdown(
-            f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명 + 수량 (수량 흰색)
+            f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 12px;margin-bottom:6px;">'
+            f'<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 1fr;gap:4px 0;align-items:center;">'
+            # 종목명 + 수량 + 평단가
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:12px;font-weight:400;color:#fff;margin-top:3px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
-            # 수익금 / 평가금 / 목표비중 (목표 흰색)
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:14px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
-            # 수익률 / 매입금 / 현재비중+초과부족 (매입금 흰색)
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:12px;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:right;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">'
-            f'<span style="font-size:14px;font-weight:800;color:{cw_color};">{cur_w:.0f}%</span> {status_txt}{adj_txt}</div>'
+            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
+            f'<div style="font-size:12px;font-weight:600;color:#aaa;margin-top:2px;white-space:nowrap;">{money(r["avg_price"], True)}</div></div>'
+            # 수익금 / 평가금 / 목표비중
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:center;font-size:16px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
+            # 수익률 / 매입금 / 현재비중+초과부족
+            f'<div style="text-align:right;font-size:14px;font-weight:800;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:center;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">'
+            f'<span style="font-size:16px;font-weight:800;color:{cw_color};">{cur_w:.0f}%</span> {status_txt}{adj_txt}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -914,8 +915,9 @@ else:
             if d["has_usd"]:
                 usd_buy = d.get("usd_buy", 0)
                 avg_buy_fx = (d["usd_buy_krw"] / usd_buy) if usd_buy and d.get("usd_buy_krw") else cur_fx
+                fx_pct = ((cur_fx - avg_buy_fx) / avg_buy_fx * 100) if avg_buy_fx else 0
                 fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
-                           f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b>'
+                           f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원 ({fxa}{abs(fx_pct):.2f}%)</b>'
                            f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
             st.markdown(
                 '<div style="padding:4px 2px 2px;">'
