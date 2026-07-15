@@ -714,12 +714,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
     # 컬럼 헤더
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:2px 8px;'
+        '<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:2px 8px;'
         'padding:4px 8px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
         '<div style="text-align:right;">수익금 / 수익률</div>'
         '<div style="text-align:right;">평가금 / 매입금</div>'
-        '<div style="text-align:right;">현재가 / 평단가</div>'
+        '<div style="text-align:right;">목표 / 현재</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -729,7 +729,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
         profit_pct = (profit / r["buy_amt"] * 100) if r["buy_amt"] else 0
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
-        cur_w = r["eval_amt"] / total_eval * 100
+        cur_w = r["eval_amt"] / total_eval * 100  # 평가금 기준 현재비중
         tgt_w = r.get("target_weight", 0) or 0
 
         def money(v, is_price=False):
@@ -739,27 +739,25 @@ def render_holdings(acct, data, cur_fx, show_krw):
                 return fmt_usd(v, 2)
             return fmt_won(v)
 
-        # 종목명 길이에 따라 글자 크기 조절
         name_len = len(r["name"])
-        name_size = 13 if name_len <= 9 else 11 if name_len <= 14 else 10
-        # 현재비중 색상: 목표 초과=빨강, 부족=파랑
+        name_size = 14 if name_len <= 9 else 12 if name_len <= 14 else 10
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명 옆에 수량, 아래에 목표/현재 비중 (한 줄 유지)
+            f'<div style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
+            # 종목명 + 수량
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:11px;font-weight:400;color:#aaa;margin-top:2px;white-space:nowrap;">{r["qty"]:,.0f}주 · <span style="color:#888;">목표<b style="color:#ccc;">{tgt_w:.0f}</b>/현재<b style="color:{cw_color};">{cur_w:.0f}</b></span></div></div>'
-            # 1행 숫자: 수익금 / 평가금 / 현재가
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:12px;font-weight:700;color:#4dd2ff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(price, True) if price else "-"}</div>'
-            # 2행 숫자: 수익률 / 매입금 / 평단가
-            f'<div style="text-align:right;font-size:11px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:11px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:right;font-size:11px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["avg_price"], True)}</div>'
+            f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:3px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
+            # 수익금 / 평가금 / 목표비중
+            f'<div style="text-align:right;font-size:14px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
+            f'<div style="text-align:right;font-size:14px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:#ccc;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
+            # 수익률 / 매입금 / 현재비중
+            f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:right;font-size:13px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:{cw_color};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{cur_w:.0f}%</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -889,12 +887,11 @@ else:
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
 
-        # 계좌 요약
+        # 계좌 요약 (전체처럼 총평가금 크게 + 손익금(손익%))
         if buy_krw > 0:
             fx = d["fx_gain"]
             fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
             fxa = "▲" if fx >= 0 else "▼"
-            # 환차손익 + 평균 매수환율/현재환율 표시
             fx_line = ""
             if d["has_usd"]:
                 usd_buy = d.get("usd_buy", 0)
@@ -903,12 +900,11 @@ else:
                            f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원</b>'
                            f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
             st.markdown(
-                '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 8px;margin:6px 0;">'
-                f'<div><span style="font-size:11px;color:#888;">매입금</span><br><b style="color:#fff;font-size:13px;">{buy_krw:,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">평가금</span><br><b style="color:#fff;font-size:13px;">{eval_krw:,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">수익금</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(profit):,.0f}원</b></div>'
-                f'<div><span style="font-size:11px;color:#888;">손익률</span><br><b style="color:{pc};font-size:13px;">{pa}{abs(ppct):.1f}%</b></div>'
-                f'</div>{fx_line}', unsafe_allow_html=True)
+                '<div style="padding:4px 2px 2px;">'
+                f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{eval_krw:,.0f}원</div>'
+                f'<div style="font-size:14px;font-weight:700;color:{pc};margin-top:3px;">{pa} {abs(profit):,.0f}원 ({pa}{abs(ppct):.1f}%)</div>'
+                f'<div style="font-size:12px;color:#888;margin-top:2px;">매입 {buy_krw:,.0f}원</div>'
+                f'{fx_line}</div>', unsafe_allow_html=True)
 
         # 종목 리스트 (항상 펼침)
         if holdings:
