@@ -919,12 +919,40 @@ else:
                 fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
                            f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원 ({fxa}{abs(fx_pct):.2f}%)</b>'
                            f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
+            # 종목별 비중 미니 도넛 (오른쪽 빈 공간)
+            donut_items = [(rr["name"], rr["eval_amt"] * (cur_fx if rr["usd"] else 1))
+                           for rr in d["rows"] if rr["eval_amt"]]
+            mini_donut = ""
+            if donut_items:
+                _tot = sum(v for _, v in donut_items) or 1
+                palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+                           "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea"]
+                _sz, _ro, _ri = 92, 42, 26
+                _c = _sz / 2
+                segs = ""
+                ang = -90.0
+                for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
+                    col = palette[i % len(palette)]
+                    sw = av / _tot * 360
+                    a0, a1 = math.radians(ang), math.radians(ang + sw)
+                    x0o, y0o = _c + _ro*math.cos(a0), _c + _ro*math.sin(a0)
+                    x1o, y1o = _c + _ro*math.cos(a1), _c + _ro*math.sin(a1)
+                    x0i, y0i = _c + _ri*math.cos(a1), _c + _ri*math.sin(a1)
+                    x1i, y1i = _c + _ri*math.cos(a0), _c + _ri*math.sin(a0)
+                    lg = 1 if sw > 180 else 0
+                    segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
+                    ang += sw
+                mini_donut = f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}" style="flex:0 0 auto;">{segs}</svg>'
+
             st.markdown(
-                '<div style="padding:4px 2px 2px;">'
+                '<div style="display:flex;align-items:center;gap:12px;padding:4px 2px 2px;">'
+                '<div style="flex:1 1 auto;min-width:0;">'
                 f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{eval_krw:,.0f}원</div>'
                 f'<div style="font-size:14px;font-weight:700;color:{pc};margin-top:3px;">{pa} {abs(profit):,.0f}원 ({pa}{abs(ppct):.1f}%)</div>'
                 f'<div style="font-size:12px;color:#888;margin-top:2px;">매입 {buy_krw:,.0f}원</div>'
-                f'{fx_line}</div>', unsafe_allow_html=True)
+                f'{fx_line}</div>'
+                f'{mini_donut}'
+                '</div>', unsafe_allow_html=True)
 
         # 종목 리스트 (항상 펼침)
         if holdings:
