@@ -763,17 +763,17 @@ def render_holdings(acct, data, cur_fx, show_krw):
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:3px 0;align-items:center;">'
-            # 종목명 + 수량
+            # 종목명 + 수량 (수량 흰색)
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:12px;font-weight:400;color:#aaa;margin-top:3px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
-            # 수익금 / 평가금 / 목표비중
+            f'<div style="font-size:12px;font-weight:400;color:#fff;margin-top:3px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
+            # 수익금 / 평가금 / 목표비중 (목표 흰색)
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{money(abs(profit))}</div>'
             f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:right;font-size:14px;font-weight:800;color:#ccc;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
-            # 수익률 / 매입금 / 현재비중+초과부족
+            f'<div style="text-align:right;font-size:14px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
+            # 수익률 / 매입금 / 현재비중+초과부족 (매입금 흰색)
             f'<div style="text-align:right;font-size:12px;font-weight:700;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:12px;color:#aaa;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
+            f'<div style="text-align:right;font-size:12px;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
             f'<div style="text-align:right;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">'
             f'<span style="font-size:14px;font-weight:800;color:{cw_color};">{cur_w:.0f}%</span> {status_txt}{adj_txt}</div>'
             f'</div></div>',
