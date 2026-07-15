@@ -951,12 +951,22 @@ else:
                         labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="10" font-weight="800" fill="#0a0a0a">{pct:.0f}</text>'
                     ang += sw
                 mini_donut = f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}" style="flex:0 0 auto;">{segs}{labs}</svg>'
-                # 범례 (색-종목명)
+                # 범례 (색-종목명, 운용사명 제거)
                 legend = ""
+                fund_prefixes = ["TIGER ", "KODEX ", "ProShares ", "PROSHARES ", "ARIRANG ",
+                                 "KBSTAR ", "KOSEF ", "HANARO ", "SOL ", "ACE ", "KoAct ",
+                                 "iShares ", "ISHARES ", "Invesco ", "Roundhill ", "RISE ",
+                                 "PLUS ", "TIMEFOLIO ", "WON ", "히어로즈 ", "마이다스 "]
+                def strip_fund(nm2):
+                    for p in fund_prefixes:
+                        if nm2.startswith(p):
+                            return nm2[len(p):]
+                    return nm2
                 for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
                     col = palette[i % len(palette)]
                     pct = av / _tot * 100
-                    short_nm = an if len(an) <= 8 else an[:7] + "…"
+                    core = strip_fund(an)
+                    short_nm = core if len(core) <= 9 else core[:8] + "…"
                     legend += (f'<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">'
                                f'<span style="width:8px;height:8px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
                                f'<span style="font-size:10px;color:#ccc;white-space:nowrap;">{short_nm} {pct:.0f}%</span></div>')
