@@ -927,13 +927,16 @@ else:
                 _tot = sum(v for _, v in donut_items) or 1
                 palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
                            "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea"]
-                _sz, _ro, _ri = 92, 42, 26
+                _sz, _ro, _ri = 108, 50, 30
                 _c = _sz / 2
+                _rm = (_ro + _ri) / 2
                 segs = ""
+                labs = ""
                 ang = -90.0
                 for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
                     col = palette[i % len(palette)]
-                    sw = av / _tot * 360
+                    pct = av / _tot * 100
+                    sw = pct / 100 * 360
                     a0, a1 = math.radians(ang), math.radians(ang + sw)
                     x0o, y0o = _c + _ro*math.cos(a0), _c + _ro*math.sin(a0)
                     x1o, y1o = _c + _ro*math.cos(a1), _c + _ro*math.sin(a1)
@@ -941,8 +944,24 @@ else:
                     x1i, y1i = _c + _ri*math.cos(a0), _c + _ri*math.sin(a0)
                     lg = 1 if sw > 180 else 0
                     segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
+                    # 조각이 충분히 크면(9%↑) 안에 % 표시
+                    if pct >= 9:
+                        ma = math.radians(ang + sw/2)
+                        lx, ly = _c + _rm*math.cos(ma), _c + _rm*math.sin(ma)
+                        labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="10" font-weight="800" fill="#0a0a0a">{pct:.0f}</text>'
                     ang += sw
-                mini_donut = f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}" style="flex:0 0 auto;">{segs}</svg>'
+                mini_donut = f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}" style="flex:0 0 auto;">{segs}{labs}</svg>'
+                # 범례 (색-종목명)
+                legend = ""
+                for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
+                    col = palette[i % len(palette)]
+                    pct = av / _tot * 100
+                    short_nm = an if len(an) <= 8 else an[:7] + "…"
+                    legend += (f'<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">'
+                               f'<span style="width:8px;height:8px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
+                               f'<span style="font-size:10px;color:#ccc;white-space:nowrap;">{short_nm} {pct:.0f}%</span></div>')
+                mini_donut = (f'<div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">'
+                              f'{mini_donut}<div>{legend}</div></div>')
 
             st.markdown(
                 '<div style="display:flex;align-items:center;gap:12px;padding:4px 2px 2px;">'
