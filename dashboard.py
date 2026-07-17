@@ -136,13 +136,59 @@ def is_crypto(ticker):
 
 @st.cache_data(ttl=90, max_entries=60)
 def get_naver_price(ticker):
-    """국내 주식/ETF 현재가 (네이버)."""
+    """국내 주식/ETF 현재가 - 여러 소스 폴백 (클라우드 IP 차단 대응)."""
     code = ticker.split(".")[0]
+    hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
+    # 1) 네이버 모바일 통합 API (JSON)
+    try:
+        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/integration",
+                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
+        if r.status_code == 200:
+            d = r.json()
+            for key in ("dealTrendInfos", "totalInfos"):
+                pass
+            # closePrice 위치 탐색
+            tp = d.get("stockEndType")
+            cp = None
+            if isinstance(d.get("dealTrendInfos"), list) and d["dealTrendInfos"]:
+                cp = d["dealTrendInfos"][0].get("closePrice")
+            if not cp:
+                ti = d.get("totalInfos") or []
+                for it in ti:
+                    if it.get("code") in ("closePrice", "close"):
+                        cp = it.get("value")
+                        break
+            if cp:
+                return float(str(cp).replace(",", ""))
+    except Exception:
+        pass
+    # 2) 네이버 폴링 API (CSV 형태)
+    try:
+        r = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}",
+                         headers={**hdr, "Referer": "https://finance.naver.com/"}, timeout=6)
+        if r.status_code == 200:
+            d = r.json()
+            datas = d.get("datas") or []
+            if datas and datas[0].get("closePrice"):
+                return float(str(datas[0]["closePrice"]).replace(",", ""))
+    except Exception:
+        pass
+    # 3) 다음 금융 API
+    try:
+        r = requests.get(f"https://finance.daum.net/api/quotes/A{code}",
+                         headers={**hdr, "Referer": f"https://finance.daum.net/quotes/A{code}"}, timeout=6)
+        if r.status_code == 200:
+            tp = r.json().get("tradePrice")
+            if tp:
+                return float(tp)
+    except Exception:
+        pass
+    # 4) 네이버 크롤링 (최후)
     try:
         from bs4 import BeautifulSoup
-        res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
-        soup = BeautifulSoup(res.text, "html.parser")
+        r = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
+                         headers=hdr, timeout=6)
+        soup = BeautifulSoup(r.text, "html.parser")
         tag = soup.select_one("p.no_today span.blind")
         if tag:
             return float(tag.text.replace(",", ""))
@@ -204,12 +250,46 @@ def get_current_price(ticker):
 
 @st.cache_data(ttl=120, max_entries=10)
 def get_usd_krw():
-    """원/달러 환율 (네이버)."""
+    """원/달러 환율 - 여러 소스 폴백."""
+    hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36"}
+    # 1) 네이버 모바일 마켓인덱스
     try:
-        res = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
-                           headers={"User-Agent": "Mozilla/5.0",
-                                    "Referer": "https://m.stock.naver.com/"}, timeout=6)
-        d = res.json()
+        r = requests.get("https://m.stock.naver.com/front-api/marketIndex/productDetail",
+                         params={"category": "exchange", "reutersCode": "FX_USDKRW"},
+                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
+        if r.status_code == 200:
+            d = r.json()
+            v = (d.get("result") or {}).get("calcPrice") or (d.get("result") or {}).get("closePrice")
+            if v:
+                val = float(str(v).replace(",", ""))
+                if 800 < val < 2500:
+                    return val
+    except Exception:
+        pass
+    # 2) 다음 환율
+    try:
+        r = requests.get("https://finance.daum.net/api/exchanges/FRX.KRWUSD",
+                         headers={**hdr, "Referer": "https://finance.daum.net/exchanges"}, timeout=6)
+        if r.status_code == 200:
+            v = r.json().get("basePrice")
+            if v and 800 < float(v) < 2500:
+                return float(v)
+    except Exception:
+        pass
+    # 3) 오픈 환율 API
+    try:
+        r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=6)
+        if r.status_code == 200:
+            v = r.json().get("rates", {}).get("KRW")
+            if v and 800 < float(v) < 2500:
+                return float(v)
+    except Exception:
+        pass
+    # 4) 네이버 구 API
+    try:
+        r = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
+                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
+        d = r.json()
         for k in ("closePrice", "calcPrice"):
             v = d.get(k)
             if v:
