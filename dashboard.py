@@ -468,7 +468,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.3fr 1.3fr 0.8fr 0.9fr;gap:2px 0;'
+        '<div style="display:grid;grid-template-columns:1.2fr 1.5fr 0.7fr 0.9fr;gap:2px 0;'
         'padding:4px 6px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
         '<div style="text-align:right;">평가금 / 수익금(%)</div>'
@@ -512,17 +512,17 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.3fr 1.3fr 0.8fr 0.9fr;gap:0;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.2fr 1.5fr 0.7fr 0.9fr;gap:0;align-items:center;">'
             f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
-            f'<div style="text-align:right;padding:0 6px;overflow:hidden;">'
-            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
-            f'<div style="text-align:center;padding:0 4px;">'
-            f'<div style="font-size:16px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:16px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
-            f'<div style="text-align:right;padding:0 6px;">{sig_html}</div>'
+            f'<div style="text-align:right;padding:0 6px;min-width:0;">'
+            f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            f'<div style="text-align:center;padding:0 2px;">'
+            f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
+            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
+            f'<div style="text-align:right;padding:0 4px;">{sig_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
