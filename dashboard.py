@@ -493,19 +493,21 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 신호: 목표비중 기준
+        # 신호: 목표비중 기준 ±15% 상대 밴드
+        # 매도: 현재비중 > 목표×1.15 / 매수: 현재비중 < 목표×0.85
         if tgt_w == 0:
             sig_html = '<span style="color:#666;font-size:13px;">-</span>'
         else:
             tgt_amt = tgt_w / 100 * total_eval
-            diff = tgt_amt - r["eval_amt"]  # +면 매수해야, -면 매도해야
-            diff_krw = diff  # total_eval already KRW-based
-            if r["eval_amt"] < tgt_amt * 0.98:
+            diff = abs(tgt_amt - r["eval_amt"])
+            upper = tgt_w * 1.15
+            lower = tgt_w * 0.85
+            if cur_w < lower:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
-                            f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(abs(diff_krw))}</div>')
-            elif r["eval_amt"] > tgt_amt * 1.02:
+                            f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(diff)}</div>')
+            elif cur_w > upper:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
-                            f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(abs(diff_krw))}</div>')
+                            f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(diff)}</div>')
             else:
                 sig_html = '<div style="font-size:13px;font-weight:700;color:#888;">적정</div>'
 
