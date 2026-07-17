@@ -471,7 +471,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
         '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 0.9fr 1fr;gap:2px 0;'
         'padding:4px 6px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
-        '<div style="text-align:right;">평가금 / 수익률</div>'
+        '<div style="text-align:right;">평가금 / 수익금(%)</div>'
         '<div style="text-align:center;">목표 / 현재</div>'
         '<div style="text-align:right;">신호 / 금액</div>'
         '</div>', unsafe_allow_html=True)
@@ -518,7 +518,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
             f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 8px;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:14px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
+            f'<div style="font-size:13px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.2f}%)</div></div>'
             f'<div style="text-align:center;border-left:1px solid #2a2a2a;padding:0 4px;">'
             f'<div style="font-size:16px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
             f'<div style="font-size:16px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
