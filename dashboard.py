@@ -1,11 +1,13 @@
 """
-투자 포트폴리오 대시보드 (경량·안정 버전)
-설계 원칙: 백그라운드 스레드 없음, 모든 캐시 개수 제한 → 메모리 안정
+투자 포트폴리오 대시보드 (경량·안정)
+- 맨 위: 전체 총평가금 + 수익률 + 포트폴리오 생성
+- 계좌별: 총평가금 + 수익률 (해외는 매수환율→현재환율 + 달러/원화 토글)
+- 종목: 종목/수량 · 평가금/수익률 · 목표/현재비중 · 신호(매수·매도)/금액
+설계: 백그라운드 스레드 없음, 캐시 개수 제한 → 메모리 안정
 """
 import streamlit as st
 import requests
 import json
-import math
 import os
 
 st.set_page_config(page_title="내 포트폴리오", layout="centered", initial_sidebar_state="collapsed")
@@ -13,48 +15,43 @@ st.set_page_config(page_title="내 포트폴리오", layout="centered", initial_
 st.markdown("""
 <style>
 div[data-testid="stButton"] > button {
-    border-radius: 7px; border: 1px solid #2a2a2a;
+    border-radius: 8px; border: 1px solid #2a2a2a;
     background: linear-gradient(180deg, #1c1c1c, #151515);
-    color: #e0e0e0; padding: 4px 12px; font-weight: 600; font-size: 12px;
-    transition: all 0.15s ease; min-height: 0; white-space: nowrap; width: auto;
+    color: #e0e0e0; padding: 5px 14px; font-weight: 700; font-size: 13px;
+    width: auto; min-height: 0; white-space: nowrap;
 }
-div[data-testid="stButton"] > button:hover {
-    border-color: #4dd2ff; color: #ffffff;
-    background: linear-gradient(180deg, #1e2a30, #16222a);
-}
+div[data-testid="stButton"] > button:hover { border-color: #4dd2ff; color: #fff; }
 div[data-testid="stCheckbox"] label p, div[data-testid="stToggle"] label p {
-    font-size: 14px !important; font-weight: 700 !important;
-}
-@media (max-width: 900px) {
-    div[data-testid="stHorizontalBlock"] { gap: 4px !important; }
-    div[data-testid="stHorizontalBlock"] > div[data-testid="column"] { min-width: 0 !important; }
+    font-size: 13px !important; font-weight: 700 !important;
 }
 div[data-testid="column"] { min-width: 0 !important; }
-div[data-testid="stButton"] > button { padding-left: 2px !important; padding-right: 2px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-FINNHUB_SYMBOLS = {
-    "QQQ": "QQQ", "VOO": "VOO", "SOXX": "SOXX", "SPY": "SPY", "SHY": "SHY",
-    "UUP": "UUP", "TLT": "TLT", "VIXY": "VIXY",
-}
-
+FINNHUB_SYMBOLS = {"QQQ": "QQQ", "VOO": "VOO", "SOXX": "SOXX", "SPY": "SPY"}
 PORTFOLIO_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portfolios_data.json")
 
 
-# ========== 구글 시트 저장소 ==========
+def _secret(key):
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        return None
+
+
+# ===== 구글 시트 저장 =====
 @st.cache_resource
 def _get_gsheet():
     try:
         import gspread
         from google.oauth2.service_account import Credentials
-        sa_info = st.secrets.get("gcp_service_account")
-        sheet_id = st.secrets.get("gsheet_id")
-        if not sa_info or not sheet_id:
+        sa = st.secrets.get("gcp_service_account")
+        sid = st.secrets.get("gsheet_id")
+        if not sa or not sid:
             return None
         creds = Credentials.from_service_account_info(
-            dict(sa_info), scopes=["https://www.googleapis.com/auth/spreadsheets"])
-        return gspread.authorize(creds).open_by_key(sheet_id)
+            dict(sa), scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        return gspread.authorize(creds).open_by_key(sid)
     except Exception:
         return None
 
@@ -112,40 +109,39 @@ def save_portfolios():
         pass
 
 
-# ========== 데이터 조회 (캐시+개수제한, 스레드 없음) ==========
-def _secret(key):
-    try:
-        return st.secrets.get(key)
-    except Exception:
-        return None
+# ===== 시세 조회 =====
+def is_korean(ticker):
+    return ticker.endswith(".KS") or ticker.endswith(".KQ")
 
 
-@st.cache_data(ttl=60, max_entries=60)
-def get_finnhub_quote(ticker):
-    api_key = _secret("FINNHUB_API_KEY")
-    if not api_key:
-        return None
-    sym = FINNHUB_SYMBOLS.get(ticker, ticker)
-    try:
-        res = requests.get("https://finnhub.io/api/v1/quote",
-                           params={"symbol": sym, "token": api_key}, timeout=5)
-        res.raise_for_status()
-        d = res.json()
-        if d.get("c") and d["c"] > 0:
-            return {"current": d["c"], "change_pct": d.get("dp") or 0.0,
-                    "high": d.get("h"), "low": d.get("l")}
-    except Exception:
-        pass
+CRYPTO_ALIASES = {
+    "BTC": "BTCUSDT", "비트코인": "BTCUSDT", "BITCOIN": "BTCUSDT", "BTCUSD": "BTCUSDT",
+    "BTC-USD": "BTCUSDT", "BTCUSDT": "BTCUSDT", "ETH": "ETHUSDT", "이더리움": "ETHUSDT",
+    "ETHUSD": "ETHUSDT", "SOL": "SOLUSDT", "XRP": "XRPUSDT", "DOGE": "DOGEUSDT",
+}
+
+
+def crypto_symbol(ticker):
+    t = ticker.upper().replace("BINANCE:", "").strip()
+    if t in CRYPTO_ALIASES:
+        return CRYPTO_ALIASES[t]
+    if t.endswith("USDT"):
+        return t
     return None
 
 
-@st.cache_data(ttl=120, max_entries=40)
-def get_naver_domestic_price(ticker):
+def is_crypto(ticker):
+    return crypto_symbol(ticker) is not None
+
+
+@st.cache_data(ttl=90, max_entries=60)
+def get_naver_price(ticker):
+    """국내 주식/ETF 현재가 (네이버)."""
     code = ticker.split(".")[0]
     try:
         from bs4 import BeautifulSoup
         res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+                           headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
         soup = BeautifulSoup(res.text, "html.parser")
         tag = soup.select_one("p.no_today span.blind")
         if tag:
@@ -155,186 +151,42 @@ def get_naver_domestic_price(ticker):
     return None
 
 
-@st.cache_data(ttl=120, max_entries=20)
-def get_naver_index(code):
-    try:
-        import re
-        from bs4 import BeautifulSoup
-        res = requests.get(f"https://finance.naver.com/sise/sise_index.naver?code={code}",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
-        now = soup.select_one("#now_value")
-        rate = soup.select_one("#change_value_and_rate")
-        if now:
-            cur = float(now.text.replace(",", ""))
-            pct = 0.0
-            if rate:
-                txt = rate.text.replace(",", "")
-                m = re.search(r"([-+]?\d+\.\d+)", txt)
-                if m:
-                    pct = float(m.group(1))
-                    if "하락" in txt:
-                        pct = -abs(pct)
-            return {"current": cur, "change_pct": pct}
-    except Exception:
-        pass
-    return None
-
-
-@st.cache_data(ttl=120, max_entries=10)
-def get_usd_krw():
-    # 네이버 환율 API
-    try:
-        res = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
-                           headers={"User-Agent": "Mozilla/5.0",
-                                    "Referer": "https://m.stock.naver.com/"}, timeout=5)
-        d = res.json()
-        for key in ("closePrice", "calcPrice", "openPrice"):
-            price = d.get(key)
-            if price:
-                val = float(str(price).replace(",", ""))
-                if 800 < val < 2500:  # 정상 환율 범위 체크
-                    return val
-    except Exception:
-        pass
-    # 폴백: 네이버 크롤링
-    try:
-        from bs4 import BeautifulSoup
-        res = requests.get("https://finance.naver.com/marketindex/",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        soup = BeautifulSoup(res.text, "html.parser")
-        tag = soup.select_one("div.head_info > span.value")
-        if tag:
-            val = float(tag.text.replace(",", ""))
-            if 800 < val < 2500:
-                return val
-    except Exception:
-        pass
-    return 1380.0
-
-
-@st.cache_data(ttl=300, max_entries=20)
-def fetch_fred_series(series_id):
-    api_key = _secret("FRED_API_KEY")
+@st.cache_data(ttl=60, max_entries=60)
+def get_finnhub_price(ticker):
+    """미국 주식/ETF 현재가 (Finnhub)."""
+    api_key = _secret("FINNHUB_API_KEY")
     if not api_key:
         return None
+    sym = FINNHUB_SYMBOLS.get(ticker, ticker)
     try:
-        res = requests.get("https://api.stlouisfed.org/fred/series/observations",
-                           params={"series_id": series_id, "api_key": api_key,
-                                   "file_type": "json", "sort_order": "asc"}, timeout=6)
-        obs = res.json().get("observations", [])
-        out = [(o["date"], float(o["value"])) for o in obs if o["value"] not in (".", "")]
-        return out if out else None
-    except Exception:
-        return None
-
-
-@st.cache_data(ttl=3600 * 6, max_entries=5)
-def get_global_m2():
-    us = fetch_fred_series("M2SL")
-    eu = fetch_fred_series("MYAGM2EZM196N")
-    if not us:
-        return None
-    eur_usd = 1.08
-    us_map = {d[:7]: v for d, v in us}
-    eu_map = {d[:7]: v for d, v in eu} if eu else {}
-    months = sorted(us_map.keys())
-    trend = []
-    for m in months[-24:]:
-        total = us_map[m] / 1000.0
-        if m in eu_map:
-            total += (eu_map[m] * eur_usd) / 1e12
-        trend.append(total)
-    if not trend:
-        return None
-    yoy = None
-    if len(months) > 12:
-        bm = months[-13]
-        base = us_map[bm] / 1000.0 + ((eu_map.get(bm, 0) * eur_usd) / 1e12)
-        if base:
-            yoy = (trend[-1] - base) / base * 100
-    return {"total_trillion": trend[-1], "yoy": yoy, "trend": trend}
-
-
-@st.cache_data(ttl=3600 * 4, max_entries=5)
-def get_high_yield_spread():
-    data = fetch_fred_series("BAMLH0A0HYM2")
-    if not data:
-        return None
-    date, value = data[-1]
-    return {"value": value}
-
-
-@st.cache_data(ttl=3600 * 2, max_entries=5)
-def get_treasury_yields():
-    """미국 국채 2년물/10년물 금리(%) - FRED 실제 값."""
-    y2 = fetch_fred_series("DGS2")
-    y10 = fetch_fred_series("DGS10")
-    return {
-        "y2": y2[-1][1] if y2 else None,
-        "y10": y10[-1][1] if y10 else None,
-    }
-
-
-@st.cache_data(ttl=300, max_entries=5)
-def get_cnn_fear_greed():
-    try:
-        res = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        res = requests.get("https://finnhub.io/api/v1/quote",
+                           params={"symbol": sym, "token": api_key}, timeout=6)
         d = res.json()
-        score = int(round(d["fear_and_greed"]["score"]))
-        rating = d["fear_and_greed"]["rating"]
-        kr = {"extreme fear": "극단적 공포", "fear": "공포", "neutral": "중립",
-              "greed": "탐욕", "extreme greed": "극단적 탐욕"}
-        return score, kr.get(rating, rating)
+        if d.get("c") and d["c"] > 0:
+            return float(d["c"])
     except Exception:
-        return 50, "중립"
-
-
-def is_korean(ticker):
-    return ticker.endswith(".KS") or ticker.endswith(".KQ")
-
-
-# 암호화폐 티커 판별 (BTC, 비트코인, BTCUSDT, BINANCE:BTCUSDT 등)
-CRYPTO_ALIASES = {
-    "BTC": "BTCUSDT", "비트코인": "BTCUSDT", "BITCOIN": "BTCUSDT", "XBT": "BTCUSDT",
-    "BTCUSD": "BTCUSDT", "BTC-USD": "BTCUSDT", "BTCUSDT": "BTCUSDT",
-    "ETH": "ETHUSDT", "이더리움": "ETHUSDT", "ETHEREUM": "ETHUSDT", "ETHUSD": "ETHUSDT",
-    "SOL": "SOLUSDT", "XRP": "XRPUSDT", "리플": "XRPUSDT", "DOGE": "DOGEUSDT",
-}
-
-
-def crypto_symbol(ticker):
-    t = ticker.upper().replace("BINANCE:", "").strip()
-    if t in CRYPTO_ALIASES:
-        return CRYPTO_ALIASES[t]
-    if ticker in CRYPTO_ALIASES:
-        return CRYPTO_ALIASES[ticker]
-    if t.endswith("USDT"):
-        return t
+        pass
     return None
 
 
 @st.cache_data(ttl=60, max_entries=30)
 def get_crypto_price(ticker):
-    """암호화폐 현재가 (Binance 공개 API, USDT 기준 → 달러로 취급)."""
+    """암호화폐 현재가 (Binance → Coinbase 폴백)."""
     sym = crypto_symbol(ticker)
     if not sym:
         return None
     try:
         res = requests.get("https://api.binance.com/api/v3/ticker/price",
-                           params={"symbol": sym}, timeout=5)
+                           params={"symbol": sym}, timeout=6)
         d = res.json()
         if d.get("price"):
             return float(d["price"])
     except Exception:
         pass
-    # 폴백: Coinbase
     try:
         base = sym.replace("USDT", "")
-        res = requests.get(f"https://api.coinbase.com/v2/prices/{base}-USD/spot", timeout=5)
-        d = res.json()
-        amt = d.get("data", {}).get("amount")
+        res = requests.get(f"https://api.coinbase.com/v2/prices/{base}-USD/spot", timeout=6)
+        amt = res.json().get("data", {}).get("amount")
         if amt:
             return float(amt)
     except Exception:
@@ -342,246 +194,60 @@ def get_crypto_price(ticker):
     return None
 
 
-def is_crypto(ticker):
-    return crypto_symbol(ticker) is not None
-
-
 def get_current_price(ticker):
     if is_korean(ticker):
-        return get_naver_domestic_price(ticker)
+        return get_naver_price(ticker)
     if is_crypto(ticker):
         return get_crypto_price(ticker)
-    q = get_finnhub_quote(ticker)
-    return q["current"] if q else None
+    return get_finnhub_price(ticker)
 
 
-@st.cache_data(ttl=600, max_entries=60)
-def get_naver_52w_high(ticker):
-    """네이버에서 국내 종목 52주 최고가."""
-    code = ticker.split(".")[0]
+@st.cache_data(ttl=120, max_entries=10)
+def get_usd_krw():
+    """원/달러 환율 (네이버)."""
     try:
-        import re
-        from bs4 import BeautifulSoup
-        res = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
-                           headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        res.encoding = "euc-kr"
-        soup = BeautifulSoup(res.text, "html.parser")
-        # "52주최고" 텍스트가 있는 표 셀 근처의 숫자
-        for th in soup.find_all(["th", "td"]):
-            txt = th.get_text(strip=True)
-            if "52주최고" in txt or "52주 최고" in txt:
-                # 같은 행 또는 다음 셀에서 숫자 추출
-                nxt = th.find_next(["td", "em", "span"])
-                if nxt:
-                    m = re.search(r"[\d,]+", nxt.get_text())
-                    if m:
-                        return float(m.group().replace(",", ""))
-        # 대체: 전체 텍스트에서 "52주최고 xxx" 패턴
-        m = re.search(r"52주\s*최고[^\d]*([\d,]+)", soup.get_text())
-        if m:
-            return float(m.group(1).replace(",", ""))
+        res = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
+                           headers={"User-Agent": "Mozilla/5.0",
+                                    "Referer": "https://m.stock.naver.com/"}, timeout=6)
+        d = res.json()
+        for k in ("closePrice", "calcPrice"):
+            v = d.get(k)
+            if v:
+                val = float(str(v).replace(",", ""))
+                if 800 < val < 2500:
+                    return val
     except Exception:
         pass
-    return None
+    return 1380.0
 
 
-@st.cache_data(ttl=300, max_entries=60)
-def get_52w_high(ticker):
-    """52주 고점 (국내는 네이버, 해외는 Finnhub 캔들)."""
-    if is_korean(ticker):
-        return get_naver_52w_high(ticker)
-    api_key = _secret("FINNHUB_API_KEY")
-    if not api_key:
-        return None
-    try:
-        import time
-        sym = FINNHUB_SYMBOLS.get(ticker, ticker)
-        now = int(time.time())
-        res = requests.get("https://finnhub.io/api/v1/stock/candle",
-                           params={"symbol": sym, "resolution": "D",
-                                   "from": now - 252 * 86400, "to": now, "token": api_key},
-                           timeout=5)
-        d = res.json()
-        if d.get("h"):
-            return max(d["h"])
-    except Exception:
-        pass
-    return None
-
-
-@st.cache_data(ttl=300, max_entries=60)
-def get_rsi(ticker):
-    """RSI 14일 (해외만, Finnhub 캔들 기반)."""
-    if is_korean(ticker):
-        return None
-    api_key = _secret("FINNHUB_API_KEY")
-    if not api_key:
-        return None
-    try:
-        import time
-        sym = FINNHUB_SYMBOLS.get(ticker, ticker)
-        now = int(time.time())
-        res = requests.get("https://finnhub.io/api/v1/stock/candle",
-                           params={"symbol": sym, "resolution": "D",
-                                   "from": now - 40 * 86400, "to": now, "token": api_key},
-                           timeout=5)
-        d = res.json()
-        closes = d.get("c")
-        if not closes or len(closes) < 15:
-            return None
-        gains, losses = [], []
-        for i in range(1, len(closes)):
-            diff = closes[i] - closes[i - 1]
-            gains.append(max(diff, 0))
-            losses.append(max(-diff, 0))
-        avg_gain = sum(gains[-14:]) / 14
-        avg_loss = sum(losses[-14:]) / 14
-        if avg_loss == 0:
-            return 100.0
-        rs = avg_gain / avg_loss
-        return 100 - (100 / (1 + rs))
-    except Exception:
-        return None
-
-
-# ========== 유틸 ==========
+# ===== 계산 =====
 def fmt_won(v):
     return f"{v:,.0f}원"
 
 
-def fmt_usd(v, decimals=2):
-    return f"{v:,.{decimals}f}&#36;"
+def fmt_usd(v):
+    return f"{v:,.2f}$"
 
 
-def make_sparkline(values, width=340, height=110, color="#4dd2ff"):
-    if not values or len(values) < 2:
-        return ""
-    mn, mx = min(values), max(values)
-    rng = (mx - mn) or 1
-    px, py = 3, 6
-    step = (width - px * 2) / (len(values) - 1)
-    pts = [(px + i * step, py + (height - py * 2) * (1 - (v - mn) / rng)) for i, v in enumerate(values)]
-    pstr = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    area = f"{px},{height-py} " + pstr + f" {width-px},{height-py}"
-    lx, ly = pts[-1]
-    return (f'<svg width="100%" height="{height}" viewBox="0 0 {width} {height}" '
-            f'preserveAspectRatio="none" style="display:block;max-width:100%;">'
-            f'<polygon points="{area}" fill="{color}" opacity="0.15"/>'
-            f'<polyline points="{pstr}" fill="none" stroke="{color}" stroke-width="2.5" '
-            f'stroke-linejoin="round" vector-effect="non-scaling-stroke"/>'
-            f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3" fill="{color}"/></svg>')
-
-
-# ========== 시장 지표 ==========
-def render_market():
-    krw = get_usd_krw()
-    fg_score, fg_status = get_cnn_fear_greed()
-    dxy = get_finnhub_quote("UUP")
-    vix = get_finnhub_quote("VIXY")  # VIX ETF 프록시 (Finnhub 무료 지원)
-    shy = get_finnhub_quote("SHY")
-    tlt = get_finnhub_quote("TLT")
-    m2 = get_global_m2()
-    hy = get_high_yield_spread()
-
-    def cell(label, main, sub="", sub_color="#4d94ff"):
-        sub_html = f'<div style="font-size:11px;font-weight:700;color:{sub_color};white-space:nowrap;">{sub}</div>' if sub else ""
-        return ('<div style="flex:1 1 0;min-width:0;padding:8px 6px;border-right:1px solid #222;text-align:center;">'
-                f'<div style="font-size:11px;color:#aaa;white-space:nowrap;">{label}</div>'
-                f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:2px;white-space:nowrap;">{main}</div>'
-                f'{sub_html}</div>')
-
-    # 환율
-    krw_cell = cell("환율", f"₩{krw:,.1f}")
-    # 공포탐욕
-    fg_cell = cell("공포·탐욕", f"{fg_score}", fg_status, "#ccc")
-    # 달러인덱스
-    if dxy:
-        c = "#ff4d4d" if dxy["change_pct"] >= 0 else "#4d94ff"
-        a = "▲" if dxy["change_pct"] >= 0 else "▼"
-        dxy_cell = cell("달러인덱스", f"${dxy['current']:,.2f}", f"{a} {abs(dxy['change_pct']):.2f}%", c)
-    else:
-        dxy_cell = cell("달러인덱스", "-")
-    # 빅스 (VIXY ETF 프록시 - 변동성). 등락률로 표시
-    if vix:
-        c = "#ff4d4d" if vix["change_pct"] >= 0 else "#4d94ff"
-        a = "▲" if vix["change_pct"] >= 0 else "▼"
-        vix_cell = cell("변동성 VIXY", f"${vix['current']:,.2f}", f"{a} {abs(vix['change_pct']):.2f}%", c)
-    else:
-        vix_cell = cell("변동성 VIXY", "-")
-    # 국채 (SHY=단기, TLT=장기 프록시)
-    bond_main = "-"
-    if shy or tlt:
-        parts = []
-        if shy:
-            parts.append(f"단기 ${shy['current']:.1f}")
-        if tlt:
-            parts.append(f"장기 ${tlt['current']:.1f}")
-        bond_main = "<br>".join(parts)
-    bond_cell = ('<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-                 '<div style="font-size:11px;color:#aaa;white-space:nowrap;">🇺🇸 국채</div>'
-                 f'<div style="font-size:12px;font-weight:700;color:#fff;margin-top:2px;white-space:nowrap;">{bond_main}</div></div>')
-
-    st.markdown(
-        '<div style="display:flex;background:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;flex-wrap:wrap;">'
-        + krw_cell + fg_cell + dxy_cell + vix_cell + bond_cell + '</div>',
-        unsafe_allow_html=True)
-
-    # 하이일드 + M2 (한 줄 더, 있을 때만)
-    extra = []
-    if hy:
-        v = hy["value"]
-        sig, sc = ("🟢안정", "#4dff4d") if v < 3.5 else ("🟡보통", "#ffff4d") if v < 5 else ("🟠경계", "#ff944d") if v < 8 else ("🔴위험", "#ff4d4d")
-        extra.append(cell("하이일드", f"{v:.2f}%", sig, sc))
-    if m2:
-        yoy = m2.get("yoy")
-        yt = ""
-        if yoy is not None:
-            yc = "#ff4d4d" if yoy >= 0 else "#4d94ff"
-            yt = f'<span style="color:{yc};font-size:10px;">{"▲" if yoy>=0 else "▼"}{abs(yoy):.1f}%</span>'
-        extra.append('<div style="flex:1 1 0;min-width:0;padding:8px 6px;text-align:center;">'
-                     '<div style="font-size:11px;color:#aaa;">글로벌 M2</div>'
-                     f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:2px;">${m2["total_trillion"]:,.1f}T {yt}</div></div>')
-    if extra:
-        st.markdown('<div style="display:flex;background:#111;border-radius:8px;overflow:hidden;margin-bottom:6px;">'
-                    + "".join(extra) + '</div>', unsafe_allow_html=True)
-
-    # M2 추세 차트 (접이식)
-    if m2 and m2.get("trend") and len(m2["trend"]) >= 2:
-        with st.expander("📈 글로벌 M2 추세 차트 (최근 24개월)"):
-            trend = m2["trend"]
-            spark = make_sparkline(trend, color="#4dd2ff" if (m2.get("yoy") or 0) >= 0 else "#ff6f4d")
-            first, last = trend[0], trend[-1]
-            chg = ((last - first) / first * 100) if first else 0
-            cc = "#ff4d4d" if chg >= 0 else "#4d94ff"
-            st.markdown(
-                '<div style="background:#0d0d0d;border-radius:10px;padding:14px 16px;">'
-                '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;">'
-                '<span style="font-size:14px;font-weight:700;color:#fff;">글로벌 M2 통화량</span>'
-                f'<span style="font-size:18px;font-weight:800;color:#fff;">${last:,.1f}T</span></div>'
-                f'<div style="height:110px;">{spark}</div>'
-                '<div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-top:6px;">'
-                f'<span>24개월 전 ${first:,.1f}T</span>'
-                f'<span style="color:{cc};font-weight:700;">24개월 {"▲" if chg>=0 else "▼"} {abs(chg):.1f}%</span></div>'
-                '<div style="font-size:10px;color:#666;margin-top:8px;">※ 미국 M2 + 유로존 M2 합산 (FRED)</div></div>',
-                unsafe_allow_html=True)
-
-
-# ========== 포트폴리오 계산 ==========
 def compute_account(holdings, cur_fx):
-    """계좌의 종목별 계산 + 원화 합계 (해외+국내 모두 정확히 합산)."""
+    """계좌 계산 (해외+국내 혼합, 환율 환산 포함)."""
     rows = []
     usd_buy_krw = usd_eval_krw = usd_fx_gain = 0.0
     krw_buy = krw_eval = 0.0
+    usd_buy = usd_eval = 0.0
     has_usd = False
     for h in holdings:
         tk = h["ticker"]
         price = get_current_price(tk)
         buy_amt = h["qty"] * h["avg_price"]
-        eval_amt = h["qty"] * price if price is not None else buy_amt
+        eval_amt = h["qty"] * price if price else buy_amt
         usd = not is_korean(tk)
         buy_fx = h.get("buy_fx_rate", 0) or cur_fx
         if usd:
             has_usd = True
+            usd_buy += buy_amt
+            usd_eval += eval_amt
             usd_buy_krw += buy_amt * buy_fx
             usd_eval_krw += eval_amt * cur_fx
             usd_fx_gain += buy_amt * (cur_fx - buy_fx)
@@ -589,26 +255,22 @@ def compute_account(holdings, cur_fx):
             krw_buy += buy_amt
             krw_eval += eval_amt
         rows.append({**h, "price": price, "buy_amt": buy_amt, "eval_amt": eval_amt,
-                     "usd": usd, "buy_fx": buy_fx, "high52": None})
-    total_buy_krw = usd_buy_krw + krw_buy
-    total_eval_krw = usd_eval_krw + krw_eval
+                     "usd": usd, "buy_fx": buy_fx})
     return {
         "rows": rows,
-        "total_buy_krw": total_buy_krw,
-        "total_eval_krw": total_eval_krw,
+        "total_buy_krw": usd_buy_krw + krw_buy,
+        "total_eval_krw": usd_eval_krw + krw_eval,
         "fx_gain": usd_fx_gain,
         "has_usd": has_usd,
-        "usd_buy": sum(r["buy_amt"] for r in rows if r["usd"]),
-        "usd_eval": sum(r["eval_amt"] for r in rows if r["usd"]),
+        "usd_buy": usd_buy, "usd_eval": usd_eval,
         "usd_buy_krw": usd_buy_krw,
-        "usd_eval_krw": usd_eval_krw,
     }
 
 
-# ========== 다이얼로그 ==========
-@st.dialog("새 계좌 만들기")
+# ===== 다이얼로그 =====
+@st.dialog("새 포트폴리오")
 def create_account_dialog():
-    name = st.text_input("계좌 이름", placeholder="예: 3. 직투")
+    name = st.text_input("계좌 이름", placeholder="예: 1. 연금")
     if st.button("만들기", use_container_width=True):
         if name and name not in st.session_state.portfolios:
             st.session_state.portfolios[name] = []
@@ -618,7 +280,7 @@ def create_account_dialog():
 
 @st.dialog("종목 추가")
 def add_stock_dialog(acct):
-    st.caption("티커 입력 (미국: AAPL, QLD / 국내: 005930.KS)")
+    st.caption("미국: AAPL, QLD / 국내: 005930.KS / 코인: BTC")
     ticker = st.text_input("티커").strip().upper()
     name = st.text_input("종목명 (표시용)")
     qty = st.number_input("수량", min_value=0.0, step=1.0)
@@ -626,8 +288,7 @@ def add_stock_dialog(acct):
     target = st.number_input("목표 비중 (%)", min_value=0.0, max_value=100.0, step=1.0)
     fx = 0.0
     if ticker and not is_korean(ticker):
-        fx = st.number_input("매수 환율 (원/달러)", min_value=0.0, step=1.0,
-                             help="매수 시점 환율. 0이면 현재환율 적용")
+        fx = st.number_input("매수 환율 (원/달러, 모르면 0)", min_value=0.0, step=1.0)
     if st.button("추가", use_container_width=True):
         if ticker:
             st.session_state.portfolios[acct].append({
@@ -637,28 +298,23 @@ def add_stock_dialog(acct):
             st.rerun()
 
 
-@st.dialog("추가 매수 (누적)")
+@st.dialog("추가 매수")
 def add_more_dialog(acct, idx):
     h = st.session_state.portfolios[acct][idx]
-    st.markdown(f"**{h['name']}** 기존: {h['qty']}주 @ {h['avg_price']:.4f}")
-    add_qty = st.number_input("추가 수량", min_value=0.0, step=1.0)
-    add_price = st.number_input("매수 단가", min_value=0.0, step=0.0001, format="%.4f")
-    add_fx = 0.0
+    st.markdown(f"**{h['name']}** · 기존 {h['qty']:,.0f}주 @ {h['avg_price']:.4f}")
+    aq = st.number_input("추가 수량", min_value=0.0, step=1.0)
+    ap = st.number_input("매수 단가", min_value=0.0, step=0.0001, format="%.4f")
+    af = 0.0
     if not is_korean(h["ticker"]):
-        add_fx = st.number_input("매수 환율", min_value=0.0, step=1.0)
-    if add_qty > 0 and add_price > 0:
-        new_qty = h["qty"] + add_qty
-        new_avg = (h["qty"] * h["avg_price"] + add_qty * add_price) / new_qty
-        old_fx = h.get("buy_fx_rate", 0) or 0
-        if not is_korean(h["ticker"]) and add_fx > 0:
-            new_fx = (h["qty"] * old_fx + add_qty * add_fx) / new_qty if old_fx else add_fx
-        else:
-            new_fx = old_fx
-        st.info(f"→ 누적: {new_qty}주 @ {new_avg:.4f}" + (f" (환율 {new_fx:.0f})" if new_fx else ""))
+        af = st.number_input("매수 환율", min_value=0.0, step=1.0)
+    if aq > 0 and ap > 0:
+        nq = h["qty"] + aq
+        na = (h["qty"] * h["avg_price"] + aq * ap) / nq
+        of = h.get("buy_fx_rate", 0) or 0
+        nf = ((h["qty"] * of + aq * af) / nq) if (not is_korean(h["ticker"]) and af > 0 and of) else (af or of)
+        st.info(f"→ {nq:,.0f}주 @ {na:.4f}" + (f" (환율 {nf:.0f})" if nf else ""))
         if st.button("확정", use_container_width=True):
-            h["qty"] = new_qty
-            h["avg_price"] = new_avg
-            h["buy_fx_rate"] = new_fx
+            h.update({"qty": nq, "avg_price": na, "buy_fx_rate": nf})
             save_portfolios()
             st.rerun()
 
@@ -689,255 +345,199 @@ def edit_stock_dialog(acct, idx):
 
 
 @st.dialog("계좌 관리")
-def manage_holdings_dialog(acct):
+def manage_dialog(acct):
     holdings = st.session_state.portfolios[acct]
-
-    # 1) 계좌 이름 수정
     st.markdown("**계좌 이름**")
     rc = st.columns([3, 1])
     with rc[0]:
-        new_name = st.text_input("계좌 이름", value=acct, key=f"rn_{acct}", label_visibility="collapsed")
+        new_name = st.text_input("이름", value=acct, key=f"rn_{acct}", label_visibility="collapsed")
     with rc[1]:
-        if st.button("변경", key=f"rn_btn_{acct}", use_container_width=True):
+        if st.button("변경", key=f"rnb_{acct}", use_container_width=True):
             if new_name and new_name != acct and new_name not in st.session_state.portfolios:
-                new_dict = {}
-                for k, v in st.session_state.portfolios.items():
-                    new_dict[new_name if k == acct else k] = v
-                st.session_state.portfolios = new_dict
+                st.session_state.portfolios = {
+                    (new_name if k == acct else k): v for k, v in st.session_state.portfolios.items()}
                 save_portfolios()
                 st.rerun()
-
     st.markdown("<hr style='border-color:#222;margin:8px 0;'>", unsafe_allow_html=True)
-
-    # 2) 종목 관리
     st.markdown(f"**종목 ({len(holdings)}개)**")
     if st.button("＋ 새 종목 추가", use_container_width=True):
         st.session_state["_open_add"] = acct
         st.rerun()
     for i, h in enumerate(holdings):
-        st.markdown(f'{h["name"]} <span style="color:#888;font-size:12px;">{h["ticker"]} · {h["qty"]:,.0f}주 @ {h["avg_price"]:.2f}</span>',
+        st.markdown(f'{h["name"]} <span style="color:#888;font-size:12px;">{h["ticker"]} · {h["qty"]:,.0f}주</span>',
                     unsafe_allow_html=True)
         bc = st.columns(2)
         with bc[0]:
-            if st.button("추가매수", key=f"mng_more_{acct}_{i}", use_container_width=True):
+            if st.button("추가매수", key=f"mm_{acct}_{i}", use_container_width=True):
                 st.session_state["_open_more"] = (acct, i)
                 st.rerun()
         with bc[1]:
-            if st.button("수정·삭제", key=f"mng_edit_{acct}_{i}", use_container_width=True):
+            if st.button("수정·삭제", key=f"me_{acct}_{i}", use_container_width=True):
                 st.session_state["_open_edit"] = (acct, i)
                 st.rerun()
-
     st.markdown("<hr style='border-color:#222;margin:8px 0;'>", unsafe_allow_html=True)
-
-    # 3) 계좌 삭제
     if st.button("🗑 이 계좌 삭제", use_container_width=True):
         del st.session_state.portfolios[acct]
         save_portfolios()
         st.rerun()
 
 
-# ========== 종목 카드 렌더 ==========
+# ===== 종목 카드 =====
 def render_holdings(acct, data, cur_fx, show_krw):
     rows = data["rows"]
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
-    # 컬럼 헤더
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.3fr 1.2fr 1fr;gap:2px 0;'
-        'padding:4px 8px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
+        '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 0.9fr 1fr;gap:2px 0;'
+        'padding:4px 6px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
         '<div style="text-align:right;">평가금 / 수익률</div>'
         '<div style="text-align:center;">목표 / 현재</div>'
+        '<div style="text-align:right;">신호 / 금액</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
         usd = r["usd"]
-        price = r["price"]
         profit = r["eval_amt"] - r["buy_amt"]
         profit_pct = (profit / r["buy_amt"] * 100) if r["buy_amt"] else 0
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
-        cur_w = r["eval_amt"] / total_eval * 100  # 평가금 기준 현재비중
+        cur_w = r["eval_amt"] / total_eval * 100
         tgt_w = r.get("target_weight", 0) or 0
 
-        def money(v, is_price=False):
-            if usd:
-                if show_krw:
-                    return fmt_won(v * cur_fx)
-                return fmt_usd(v, 2)
-            return fmt_won(v)
+        def money(v):
+            if usd and not show_krw:
+                return fmt_usd(v)
+            return fmt_won(v * cur_fx if usd else v)
 
-        name_len = len(r["name"])
-        name_size = 14 if name_len <= 9 else 12 if name_len <= 14 else 10
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
+        # 신호: 목표비중 기준
+        if tgt_w == 0:
+            sig_html = '<span style="color:#666;font-size:13px;">-</span>'
+        else:
+            tgt_amt = tgt_w / 100 * total_eval
+            diff = tgt_amt - r["eval_amt"]  # +면 매수해야, -면 매도해야
+            diff_krw = diff  # total_eval already KRW-based
+            if r["eval_amt"] < tgt_amt * 0.98:
+                sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
+                            f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(abs(diff_krw))}</div>')
+            elif r["eval_amt"] > tgt_amt * 1.02:
+                sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
+                            f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(abs(diff_krw))}</div>')
+            else:
+                sig_html = '<div style="font-size:13px;font-weight:700;color:#888;">적정</div>'
+
+        name_size = 14 if len(r["name"]) <= 9 else 12 if len(r["name"]) <= 14 else 10
+
         st.markdown(
-            f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.3fr 1.2fr 1fr;gap:0;align-items:center;">'
-            # 종목 / 수량
+            f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
+            f'<div style="display:grid;grid-template-columns:1.3fr 1.1fr 0.9fr 1fr;gap:0;align-items:center;">'
             f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:14px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
-            # 평가금 / 수익률
-            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 10px;">'
-            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:15px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
-            # 목표 / 현재
-            f'<div style="text-align:center;border-left:1px solid #2a2a2a;padding:0 6px;">'
-            f'<div style="font-size:17px;font-weight:800;color:#fff;white-space:nowrap;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:17px;font-weight:800;color:{cw_color};margin-top:4px;white-space:nowrap;">{cur_w:.0f}%</div></div>'
+            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
+            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 8px;">'
+            f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
+            f'<div style="text-align:center;border-left:1px solid #2a2a2a;padding:0 4px;">'
+            f'<div style="font-size:16px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
+            f'<div style="font-size:16px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
+            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 6px;">{sig_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
 
-def build_donut(items, size=160):
-    """items: [(name, value)] → 도넛 SVG + 범례."""
-    tot = sum(v for _, v in items) or 1
-    palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
-               "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff6f4d", "#8888ff"]
-    ro, ri = size / 2 - 4, size / 2 - 32
-    cx = cy = size / 2
-    segs = labs = leg = ""
-    ang = -90.0
-    for i, (nm, av) in enumerate(sorted(items, key=lambda x: -x[1])):
-        col = palette[i % len(palette)]
-        w = av / tot * 100
-        sw = w / 100 * 360
-        a0, a1 = math.radians(ang), math.radians(ang + sw)
-        x0o, y0o = cx + ro * math.cos(a0), cy + ro * math.sin(a0)
-        x1o, y1o = cx + ro * math.cos(a1), cy + ro * math.sin(a1)
-        x0i, y0i = cx + ri * math.cos(a1), cy + ri * math.sin(a1)
-        x1i, y1i = cx + ri * math.cos(a0), cy + ri * math.sin(a0)
-        lg = 1 if sw > 180 else 0
-        segs += (f'<path d="M {x0o:.1f} {y0o:.1f} A {ro} {ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} '
-                 f'L {x0i:.1f} {y0i:.1f} A {ri} {ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>')
-        if w >= 7:
-            ma = math.radians(ang + sw / 2)
-            rm = (ro + ri) / 2
-            segs += f'<text x="{cx+rm*math.cos(ma):.1f}" y="{cy+rm*math.sin(ma)+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{w:.0f}%</text>'
-        leg += ('<div style="display:flex;align-items:center;gap:6px;margin:3px 0;">'
-                f'<span style="width:10px;height:10px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
-                f'<span style="font-size:12px;color:#ddd;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{nm}</span>'
-                f'<span style="font-size:12px;color:#fff;font-weight:700;">{w:.1f}%</span></div>')
-        ang += sw
-    donut = f'<svg width="{size}" height="{size}" viewBox="0 0 {size} {size}">{segs}</svg>'
-    return (f'<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">'
-            f'<div style="flex:0 0 auto;">{donut}</div>'
-            f'<div style="flex:1 1 180px;min-width:180px;">{leg}</div></div>')
+def summary_block(eval_krw, buy_krw, big=True):
+    profit = eval_krw - buy_krw
+    ppct = (profit / buy_krw * 100) if buy_krw else 0
+    pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
+    pa = "▲" if profit >= 0 else "▼"
+    sz = 28 if big else 22
+    return (f'<div style="font-size:{sz}px;font-weight:800;color:#fff;line-height:1.1;">{eval_krw:,.0f}원</div>'
+            f'<div style="font-size:14px;font-weight:700;color:{pc};margin-top:3px;">{pa} {abs(profit):,.0f}원 ({pa}{abs(ppct):.1f}%)</div>')
 
 
-# ==========================================================
-# 메인 페이지
-# ==========================================================
+# ===== 메인 =====
 if "portfolios" not in st.session_state:
     st.session_state.portfolios = load_portfolios()
 
-# 종목관리 다이얼로그에서 요청한 후속 다이얼로그 열기
-_pending_add = st.session_state.pop("_open_add", None)
-if _pending_add:
-    add_stock_dialog(_pending_add)
-_pending_more = st.session_state.pop("_open_more", None)
-if _pending_more:
-    add_more_dialog(_pending_more[0], _pending_more[1])
-_pending_edit = st.session_state.pop("_open_edit", None)
-if _pending_edit:
-    edit_stock_dialog(_pending_edit[0], _pending_edit[1])
+# 후속 다이얼로그
+_pa = st.session_state.pop("_open_add", None)
+if _pa:
+    add_stock_dialog(_pa)
+_pm = st.session_state.pop("_open_more", None)
+if _pm:
+    add_more_dialog(_pm[0], _pm[1])
+_pe = st.session_state.pop("_open_edit", None)
+if _pe:
+    edit_stock_dialog(_pe[0], _pe[1])
 
-# ===== 맨 위: 합산 금액 + [+] 버튼 (포트폴리오 생성) =====
 _top = st.columns([3, 1])
 with _top[0]:
-    _total_placeholder = st.empty()
+    _total_ph = st.empty()
 with _top[1]:
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-    if st.button("＋ 계좌", key="create_acct", help="포트폴리오 생성"):
+    if st.button("＋ 생성", key="create_acct"):
         create_account_dialog()
 
 if not st.session_state.portfolios:
-    st.info("계좌가 없습니다. 위 '＋' 버튼으로 만들어보세요.")
+    st.info("계좌가 없습니다. '＋ 생성'으로 만들어보세요.")
 else:
     cur_fx = get_usd_krw()
     names = list(st.session_state.portfolios.keys())
-
-    # 1단계: 전 계좌 계산
     acct_data = {}
-    grand_buy = grand_eval = grand_fx = 0.0
-    grand_holdings = []
+    grand_buy = grand_eval = 0.0
     for nm in names:
         d = compute_account(st.session_state.portfolios[nm], cur_fx)
         acct_data[nm] = d
-        if d["total_eval_krw"] > 0:
-            grand_buy += d["total_buy_krw"]
-            grand_eval += d["total_eval_krw"]
-            grand_fx += d["fx_gain"]
-            for r in d["rows"]:
-                ev = r["eval_amt"] * cur_fx if r["usd"] else r["eval_amt"]
-                grand_holdings.append((r["name"], ev))
+        grand_buy += d["total_buy_krw"]
+        grand_eval += d["total_eval_krw"]
 
-    # 2단계: 총합산 → 맨 위 placeholder (금액만 크게)
     if grand_eval > 0:
-        gp = grand_eval - grand_buy
-        gpp = (gp / grand_buy * 100) if grand_buy else 0
-        gc = "#ff4d4d" if gp >= 0 else "#4d94ff"
-        ga = "▲" if gp >= 0 else "▼"
-        _total_placeholder.markdown(
-            '<div style="padding:8px 4px 0;">'
-            f'<div style="font-size:28px;font-weight:800;color:#fff;line-height:1.1;">{grand_eval:,.0f}원</div>'
-            f'<div style="font-size:14px;font-weight:700;color:{gc};margin-top:4px;">{ga} {abs(gp):,.0f}원 ({ga}{abs(gpp):.1f}%)</div>'
-            '</div>', unsafe_allow_html=True)
+        _total_ph.markdown('<div style="padding:8px 2px 0;">' + summary_block(grand_eval, grand_buy, big=True) + '</div>',
+                           unsafe_allow_html=True)
 
-    st.markdown("<div style='font-size:13px;color:#888;margin:12px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
-    # 3단계: 계좌별 요약 (한 줄 컴팩트) + 상세 접기
     for nm in names:
         d = acct_data[nm]
         holdings = st.session_state.portfolios[nm]
         buy_krw, eval_krw = d["total_buy_krw"], d["total_eval_krw"]
-        profit = eval_krw - buy_krw
-        ppct = (profit / buy_krw * 100) if buy_krw else 0
-        pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
-        pa = "▲" if profit >= 0 else "▼"
 
-        # 계좌명 (한 줄)
-        st.markdown(
-            f'<div style="font-size:16px;font-weight:800;color:#fff;word-break:break-all;margin:4px 0 4px;">{nm} '
-            f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-            unsafe_allow_html=True)
-        # 관리 버튼 (아래 줄, 작게 왼쪽)
-        _bc = st.columns([1, 2.5])
-        with _bc[0]:
-            if st.button("＋ 관리", key=f"manage_{nm}", help="계좌 관리"):
-                manage_holdings_dialog(nm)
+        # 계좌명 + 관리
+        hc = st.columns([3, 1])
+        with hc[0]:
+            st.markdown(f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;">{nm} '
+                        f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
+                        unsafe_allow_html=True)
+        with hc[1]:
+            if st.button("관리", key=f"mng_{nm}"):
+                manage_dialog(nm)
 
-        # 통화토글 (해외 종목 있을 때만)
+        # 통화 토글 (해외)
         show_krw = True
         if d["has_usd"]:
             cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
 
-        # 계좌 요약 (전체처럼 총평가금 크게 + 손익금(손익%))
+        # 계좌 요약 (총평가금 + 수익률)
         if buy_krw > 0:
-            fx = d["fx_gain"]
-            fxc = "#ff4d4d" if fx >= 0 else "#4d94ff"
-            fxa = "▲" if fx >= 0 else "▼"
-            fx_line = ""
+            fx_html = ""
             if d["has_usd"]:
-                usd_buy = d.get("usd_buy", 0)
-                avg_buy_fx = (d["usd_buy_krw"] / usd_buy) if usd_buy and d.get("usd_buy_krw") else cur_fx
-                fx_pct = ((cur_fx - avg_buy_fx) / avg_buy_fx * 100) if avg_buy_fx else 0
-                fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
-                           f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원 ({fxa}{abs(fx_pct):.2f}%)</b>'
-                           f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
-            # 계좌 요약 (총평가금 크게 + 손익)
-            st.markdown(
-                '<div style="padding:4px 2px 2px;">'
-                f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{eval_krw:,.0f}원</div>'
-                f'<div style="font-size:14px;font-weight:700;color:{pc};margin-top:3px;">{pa} {abs(profit):,.0f}원 ({pa}{abs(ppct):.1f}%)</div>'
-                f'<div style="font-size:12px;color:#888;margin-top:2px;">매입 {buy_krw:,.0f}원</div>'
-                f'{fx_line}</div>', unsafe_allow_html=True)
+                ub = d.get("usd_buy", 0)
+                avg_fx = (d["usd_buy_krw"] / ub) if ub and d.get("usd_buy_krw") else cur_fx
+                fx_pct = ((cur_fx - avg_fx) / avg_fx * 100) if avg_fx else 0
+                fxc = "#ff4d4d" if fx_pct >= 0 else "#4d94ff"
+                fxa = "▲" if fx_pct >= 0 else "▼"
+                fx_html = (f'<div style="font-size:12px;color:#888;margin-top:5px;">'
+                           f'매수환율 <b style="color:#ccc;">{avg_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b> '
+                           f'<b style="color:{fxc};">({fxa}{abs(fx_pct):.2f}%)</b></div>')
+            st.markdown('<div style="padding:2px 2px 4px;">' + summary_block(eval_krw, buy_krw, big=False)
+                        + fx_html + '</div>', unsafe_allow_html=True)
 
-        # 종목 리스트 (항상 펼침)
         if holdings:
             render_holdings(nm, d, cur_fx, show_krw)
 
-        st.markdown("<div style='height:10px;border-bottom:1px solid #2a2a2a;margin-bottom:12px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:8px;border-bottom:1px solid #2a2a2a;margin-bottom:12px;'></div>",
+                    unsafe_allow_html=True)
