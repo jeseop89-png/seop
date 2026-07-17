@@ -588,12 +588,8 @@ def compute_account(holdings, cur_fx):
         else:
             krw_buy += buy_amt
             krw_eval += eval_amt
-        try:
-            h52 = get_52w_high(tk)
-        except Exception:
-            h52 = None
         rows.append({**h, "price": price, "buy_amt": buy_amt, "eval_amt": eval_amt,
-                     "usd": usd, "buy_fx": buy_fx, "high52": h52})
+                     "usd": usd, "buy_fx": buy_fx, "high52": None})
     total_buy_krw = usd_buy_krw + krw_buy
     total_eval_krw = usd_eval_krw + krw_eval
     return {
@@ -747,12 +743,11 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
     # 컬럼 헤더
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.9fr;gap:2px 0;'
+        '<div style="display:grid;grid-template-columns:1.3fr 1.2fr 1fr;gap:2px 0;'
         'padding:4px 8px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
         '<div style="text-align:right;">평가금 / 수익률</div>'
         '<div style="text-align:center;">목표 / 현재</div>'
-        '<div style="text-align:right;">52주고점<br>대비</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -776,31 +771,21 @@ def render_holdings(acct, data, cur_fx, show_krw):
         name_size = 14 if name_len <= 9 else 12 if name_len <= 14 else 10
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 52주 고점 대비 하락률
-        high52 = r.get("high52")
-        if high52 and price and high52 > 0:
-            drop = (price - high52) / high52 * 100
-            drop_html = f'<span style="font-size:15px;font-weight:800;color:#4d94ff;">{drop:.1f}%</span>'
-        else:
-            drop_html = '<span style="font-size:13px;color:#666;">-</span>'
-
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.9fr;gap:0;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.3fr 1.2fr 1fr;gap:0;align-items:center;">'
             # 종목 / 수량
             f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:14px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
             # 평가금 / 수익률
-            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 8px;">'
-            f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:14px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
+            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 10px;">'
+            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:15px;font-weight:800;color:{pc};margin-top:4px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
             # 목표 / 현재
             f'<div style="text-align:center;border-left:1px solid #2a2a2a;padding:0 6px;">'
-            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:16px;font-weight:800;color:{cw_color};margin-top:4px;white-space:nowrap;">{cur_w:.0f}%</div></div>'
-            # 52주고점 대비
-            f'<div style="text-align:right;border-left:1px solid #2a2a2a;padding:0 8px;">{drop_html}</div>'
+            f'<div style="font-size:17px;font-weight:800;color:#fff;white-space:nowrap;">{tgt_w:.0f}%</div>'
+            f'<div style="font-size:17px;font-weight:800;color:{cw_color};margin-top:4px;white-space:nowrap;">{cur_w:.0f}%</div></div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
