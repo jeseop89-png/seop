@@ -714,12 +714,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
     # 컬럼 헤더
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 1fr;gap:2px 0;'
+        '<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.9fr;gap:2px 0;'
         'padding:4px 8px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
-        '<div>종목 / 수량 / 평단</div>'
-        '<div style="text-align:right;">수익금 / 수익률</div>'
-        '<div style="text-align:right;">평가금 / 매입금</div>'
+        '<div>종목 / 수량</div>'
+        '<div style="text-align:right;">평가금 / 수익률</div>'
         '<div style="text-align:center;">목표 / 현재</div>'
+        '<div style="text-align:right;">52주고점<br>대비</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -743,40 +743,28 @@ def render_holdings(acct, data, cur_fx, show_krw):
         name_size = 14 if name_len <= 9 else 12 if name_len <= 14 else 10
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 초과/부족 라벨 + 금액
-        if tgt_w == 0:
-            status_txt = ""
-            adj_txt = ""
+        # 52주 고점 대비 하락률
+        high52 = r.get("high52")
+        if high52 and price and high52 > 0:
+            drop = (price - high52) / high52 * 100
+            drop_html = f'<span style="font-size:15px;font-weight:800;color:#4d94ff;">{drop:.1f}%</span>'
         else:
-            tgt_amt = tgt_w / 100 * total_eval
-            diff = r["eval_amt"] - tgt_amt  # +면 초과, -면 부족
-            if cur_w > tgt_w:
-                status_txt = '<span style="color:#ff4d4d;font-size:10px;font-weight:700;">초과</span>'
-                adj_txt = f'<div style="font-size:10px;color:#ff4d4d;white-space:nowrap;">+{money(abs(diff))}</div>'
-            elif cur_w < tgt_w:
-                status_txt = '<span style="color:#4d94ff;font-size:10px;font-weight:700;">부족</span>'
-                adj_txt = f'<div style="font-size:10px;color:#4d94ff;white-space:nowrap;">-{money(abs(diff))}</div>'
-            else:
-                status_txt = '<span style="color:#888;font-size:10px;">적정</span>'
-                adj_txt = ""
+            drop_html = '<span style="font-size:13px;color:#666;">-</span>'
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 12px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 1fr;gap:4px 0;align-items:center;">'
-            # 종목명 + 수량 + 평단가
+            f'<div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.9fr;gap:4px 0;align-items:center;">'
+            # 종목명 + 수량
             f'<div style="grid-row:span 2;font-weight:800;color:#fff;padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
-            f'<div style="font-size:12px;font-weight:600;color:#aaa;margin-top:2px;white-space:nowrap;">{money(r["avg_price"], True)}</div></div>'
-            # 수익금 / 평가금 / 목표비중
-            f'<div style="text-align:right;font-size:15px;font-weight:800;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{money(abs(profit))}</div>'
-            f'<div style="text-align:right;font-size:15px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["eval_amt"])}</div>'
-            f'<div style="text-align:center;font-size:16px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
-            # 수익률 / 매입금 / 현재비중+초과부족
-            f'<div style="text-align:right;font-size:14px;font-weight:800;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
-            f'<div style="text-align:right;font-size:13px;font-weight:700;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{money(r["buy_amt"])}</div>'
-            f'<div style="text-align:center;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">'
-            f'<span style="font-size:16px;font-weight:800;color:{cw_color};">{cur_w:.0f}%</span> {status_txt}{adj_txt}</div>'
+            f'<div style="font-size:14px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
+            # 평가금 / 목표 / 52주 (1행)
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{money(r["eval_amt"])}</div>'
+            f'<div style="text-align:center;font-size:17px;font-weight:800;color:#fff;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{tgt_w:.0f}%</div>'
+            f'<div style="grid-row:span 2;text-align:right;white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{drop_html}</div>'
+            # 수익률 / 현재 (2행)
+            f'<div style="text-align:right;font-size:15px;font-weight:800;color:{pc};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 8px;">{pa}{abs(profit_pct):.2f}%</div>'
+            f'<div style="text-align:center;font-size:17px;font-weight:800;color:{cw_color};white-space:nowrap;border-left:1px solid #2a2a2a;padding:0 6px;">{cur_w:.0f}%</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -919,69 +907,13 @@ else:
                 fx_line = (f'<div style="font-size:12px;color:#888;margin-top:6px;">환차손익 '
                            f'<b style="color:{fxc};">{fxa} {abs(fx):,.0f}원 ({fxa}{abs(fx_pct):.2f}%)</b>'
                            f'<span style="margin-left:8px;">매수환율 <b style="color:#ccc;">{avg_buy_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b></span></div>')
-            # 종목별 비중 미니 도넛 (오른쪽 빈 공간)
-            donut_items = [(rr["name"], rr["eval_amt"] * (cur_fx if rr["usd"] else 1))
-                           for rr in d["rows"] if rr["eval_amt"]]
-            mini_donut = ""
-            if donut_items:
-                _tot = sum(v for _, v in donut_items) or 1
-                palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
-                           "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea"]
-                _sz, _ro, _ri = 108, 50, 30
-                _c = _sz / 2
-                _rm = (_ro + _ri) / 2
-                segs = ""
-                labs = ""
-                ang = -90.0
-                for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
-                    col = palette[i % len(palette)]
-                    pct = av / _tot * 100
-                    sw = pct / 100 * 360
-                    a0, a1 = math.radians(ang), math.radians(ang + sw)
-                    x0o, y0o = _c + _ro*math.cos(a0), _c + _ro*math.sin(a0)
-                    x1o, y1o = _c + _ro*math.cos(a1), _c + _ro*math.sin(a1)
-                    x0i, y0i = _c + _ri*math.cos(a1), _c + _ri*math.sin(a1)
-                    x1i, y1i = _c + _ri*math.cos(a0), _c + _ri*math.sin(a0)
-                    lg = 1 if sw > 180 else 0
-                    segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
-                    # 조각이 충분히 크면(9%↑) 안에 % 표시
-                    if pct >= 9:
-                        ma = math.radians(ang + sw/2)
-                        lx, ly = _c + _rm*math.cos(ma), _c + _rm*math.sin(ma)
-                        labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="10" font-weight="800" fill="#0a0a0a">{pct:.0f}</text>'
-                    ang += sw
-                mini_donut = f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}" style="flex:0 0 auto;">{segs}{labs}</svg>'
-                # 범례 (색-종목명, 운용사명 제거)
-                legend = ""
-                fund_prefixes = ["TIGER ", "KODEX ", "ProShares ", "PROSHARES ", "ARIRANG ",
-                                 "KBSTAR ", "KOSEF ", "HANARO ", "SOL ", "ACE ", "KoAct ",
-                                 "iShares ", "ISHARES ", "Invesco ", "Roundhill ", "RISE ",
-                                 "PLUS ", "TIMEFOLIO ", "WON ", "히어로즈 ", "마이다스 "]
-                def strip_fund(nm2):
-                    for p in fund_prefixes:
-                        if nm2.startswith(p):
-                            return nm2[len(p):]
-                    return nm2
-                for i, (an, av) in enumerate(sorted(donut_items, key=lambda x: -x[1])):
-                    col = palette[i % len(palette)]
-                    pct = av / _tot * 100
-                    core = strip_fund(an)
-                    short_nm = core if len(core) <= 9 else core[:8] + "…"
-                    legend += (f'<div style="display:flex;align-items:center;gap:4px;margin:1px 0;">'
-                               f'<span style="width:8px;height:8px;border-radius:2px;background:{col};flex:0 0 auto;"></span>'
-                               f'<span style="font-size:10px;color:#ccc;white-space:nowrap;">{short_nm} {pct:.0f}%</span></div>')
-                mini_donut = (f'<div style="display:flex;align-items:center;gap:8px;flex:0 0 auto;">'
-                              f'{mini_donut}<div>{legend}</div></div>')
-
+            # 계좌 요약 (총평가금 크게 + 손익)
             st.markdown(
-                '<div style="display:flex;align-items:center;gap:12px;padding:4px 2px 2px;">'
-                '<div style="flex:1 1 auto;min-width:0;">'
+                '<div style="padding:4px 2px 2px;">'
                 f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{eval_krw:,.0f}원</div>'
                 f'<div style="font-size:14px;font-weight:700;color:{pc};margin-top:3px;">{pa} {abs(profit):,.0f}원 ({pa}{abs(ppct):.1f}%)</div>'
                 f'<div style="font-size:12px;color:#888;margin-top:2px;">매입 {buy_krw:,.0f}원</div>'
-                f'{fx_line}</div>'
-                f'{mini_donut}'
-                '</div>', unsafe_allow_html=True)
+                f'{fx_line}</div>', unsafe_allow_html=True)
 
         # 종목 리스트 (항상 펼침)
         if holdings:
