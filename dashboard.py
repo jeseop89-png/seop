@@ -134,66 +134,67 @@ def is_crypto(ticker):
     return crypto_symbol(ticker) is not None
 
 
+_KR_SOURCE_ORDER = ["polling", "mobile", "daum", "crawl"]
+_KR_GOOD_SOURCE = [None]  # 세션 중 성공한 소스 기억 (모듈 전역)
+
+
+def _kr_fetch_one(source, code, hdr):
+    """단일 소스에서 국내 현재가. 실패 시 None."""
+    try:
+        if source == "polling":
+            r = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}",
+                             headers={**hdr, "Referer": "https://finance.naver.com/"}, timeout=3.5)
+            if r.status_code == 200:
+                datas = r.json().get("datas") or []
+                if datas and datas[0].get("closePrice"):
+                    return float(str(datas[0]["closePrice"]).replace(",", ""))
+        elif source == "mobile":
+            r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/integration",
+                             headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=3.5)
+            if r.status_code == 200:
+                d = r.json()
+                cp = None
+                if isinstance(d.get("dealTrendInfos"), list) and d["dealTrendInfos"]:
+                    cp = d["dealTrendInfos"][0].get("closePrice")
+                if not cp:
+                    for it in (d.get("totalInfos") or []):
+                        if it.get("code") in ("closePrice", "close"):
+                            cp = it.get("value")
+                            break
+                if cp:
+                    return float(str(cp).replace(",", ""))
+        elif source == "daum":
+            r = requests.get(f"https://finance.daum.net/api/quotes/A{code}",
+                             headers={**hdr, "Referer": f"https://finance.daum.net/quotes/A{code}"}, timeout=3.5)
+            if r.status_code == 200:
+                tp = r.json().get("tradePrice")
+                if tp:
+                    return float(tp)
+        elif source == "crawl":
+            from bs4 import BeautifulSoup
+            r = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
+                             headers=hdr, timeout=3.5)
+            soup = BeautifulSoup(r.text, "html.parser")
+            tag = soup.select_one("p.no_today span.blind")
+            if tag:
+                return float(tag.text.replace(",", ""))
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=90, max_entries=60)
 def get_naver_price(ticker):
-    """국내 주식/ETF 현재가 - 여러 소스 폴백 (클라우드 IP 차단 대응)."""
+    """국내 현재가 - 세션 중 되는 소스를 우선 시도 (빠름)."""
     code = ticker.split(".")[0]
     hdr = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"}
-    # 1) 네이버 모바일 통합 API (JSON)
-    try:
-        r = requests.get(f"https://m.stock.naver.com/api/stock/{code}/integration",
-                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
-        if r.status_code == 200:
-            d = r.json()
-            for key in ("dealTrendInfos", "totalInfos"):
-                pass
-            # closePrice 위치 탐색
-            tp = d.get("stockEndType")
-            cp = None
-            if isinstance(d.get("dealTrendInfos"), list) and d["dealTrendInfos"]:
-                cp = d["dealTrendInfos"][0].get("closePrice")
-            if not cp:
-                ti = d.get("totalInfos") or []
-                for it in ti:
-                    if it.get("code") in ("closePrice", "close"):
-                        cp = it.get("value")
-                        break
-            if cp:
-                return float(str(cp).replace(",", ""))
-    except Exception:
-        pass
-    # 2) 네이버 폴링 API (CSV 형태)
-    try:
-        r = requests.get(f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}",
-                         headers={**hdr, "Referer": "https://finance.naver.com/"}, timeout=6)
-        if r.status_code == 200:
-            d = r.json()
-            datas = d.get("datas") or []
-            if datas and datas[0].get("closePrice"):
-                return float(str(datas[0]["closePrice"]).replace(",", ""))
-    except Exception:
-        pass
-    # 3) 다음 금융 API
-    try:
-        r = requests.get(f"https://finance.daum.net/api/quotes/A{code}",
-                         headers={**hdr, "Referer": f"https://finance.daum.net/quotes/A{code}"}, timeout=6)
-        if r.status_code == 200:
-            tp = r.json().get("tradePrice")
-            if tp:
-                return float(tp)
-    except Exception:
-        pass
-    # 4) 네이버 크롤링 (최후)
-    try:
-        from bs4 import BeautifulSoup
-        r = requests.get(f"https://finance.naver.com/item/main.naver?code={code}",
-                         headers=hdr, timeout=6)
-        soup = BeautifulSoup(r.text, "html.parser")
-        tag = soup.select_one("p.no_today span.blind")
-        if tag:
-            return float(tag.text.replace(",", ""))
-    except Exception:
-        pass
+    good = _KR_GOOD_SOURCE[0]
+    order = ([good] + [s for s in _KR_SOURCE_ORDER if s != good]) if good else _KR_SOURCE_ORDER
+    for source in order:
+        price = _kr_fetch_one(source, code, hdr)
+        if price:
+            _KR_GOOD_SOURCE[0] = source  # 다음부터 이 소스 우선
+            return price
     return None
 
 
@@ -206,7 +207,7 @@ def get_finnhub_price(ticker):
     sym = FINNHUB_SYMBOLS.get(ticker, ticker)
     try:
         res = requests.get("https://finnhub.io/api/v1/quote",
-                           params={"symbol": sym, "token": api_key}, timeout=6)
+                           params={"symbol": sym, "token": api_key}, timeout=3.5)
         d = res.json()
         if d.get("c") and d["c"] > 0:
             return float(d["c"])
@@ -223,7 +224,7 @@ def get_crypto_price(ticker):
         return None
     try:
         res = requests.get("https://api.binance.com/api/v3/ticker/price",
-                           params={"symbol": sym}, timeout=6)
+                           params={"symbol": sym}, timeout=3.5)
         d = res.json()
         if d.get("price"):
             return float(d["price"])
@@ -231,7 +232,7 @@ def get_crypto_price(ticker):
         pass
     try:
         base = sym.replace("USDT", "")
-        res = requests.get(f"https://api.coinbase.com/v2/prices/{base}-USD/spot", timeout=6)
+        res = requests.get(f"https://api.coinbase.com/v2/prices/{base}-USD/spot", timeout=3.5)
         amt = res.json().get("data", {}).get("amount")
         if amt:
             return float(amt)
@@ -256,7 +257,7 @@ def get_usd_krw():
     try:
         r = requests.get("https://m.stock.naver.com/front-api/marketIndex/productDetail",
                          params={"category": "exchange", "reutersCode": "FX_USDKRW"},
-                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
+                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=3.5)
         if r.status_code == 200:
             d = r.json()
             v = (d.get("result") or {}).get("calcPrice") or (d.get("result") or {}).get("closePrice")
@@ -269,7 +270,7 @@ def get_usd_krw():
     # 2) 다음 환율
     try:
         r = requests.get("https://finance.daum.net/api/exchanges/FRX.KRWUSD",
-                         headers={**hdr, "Referer": "https://finance.daum.net/exchanges"}, timeout=6)
+                         headers={**hdr, "Referer": "https://finance.daum.net/exchanges"}, timeout=3.5)
         if r.status_code == 200:
             v = r.json().get("basePrice")
             if v and 800 < float(v) < 2500:
@@ -278,7 +279,7 @@ def get_usd_krw():
         pass
     # 3) 오픈 환율 API
     try:
-        r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=6)
+        r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=3.5)
         if r.status_code == 200:
             v = r.json().get("rates", {}).get("KRW")
             if v and 800 < float(v) < 2500:
@@ -288,7 +289,7 @@ def get_usd_krw():
     # 4) 네이버 구 API
     try:
         r = requests.get("https://api.stock.naver.com/marketindex/exchange/FX_USDKRW",
-                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=6)
+                         headers={**hdr, "Referer": "https://m.stock.naver.com/"}, timeout=3.5)
         d = r.json()
         for k in ("closePrice", "calcPrice"):
             v = d.get(k)
