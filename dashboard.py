@@ -9,6 +9,7 @@ import streamlit as st
 import requests
 import json
 import os
+import math
 
 st.set_page_config(page_title="내 포트폴리오", layout="centered", initial_sidebar_state="collapsed")
 
@@ -402,6 +403,62 @@ def get_usd_krw():
     return 1380.0
 
 
+# ===== 시장 지표 (공포지수·VIX·미국채) =====
+@st.cache_data(ttl=1800, max_entries=3)
+def get_fear_greed():
+    """CNN 공포탐욕지수 (0~100). 실패 시 None."""
+    try:
+        r = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata",
+                         headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        if r.status_code == 200:
+            v = r.json().get("fear_and_greed", {}).get("score")
+            if v is not None:
+                return round(float(v))
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=600, max_entries=3)
+def get_vix():
+    """VIX 변동성지수. Finnhub → 실패시 None."""
+    api_key = _secret("FINNHUB_API_KEY")
+    if api_key:
+        for sym in ("^VIX", "VIX"):
+            try:
+                r = requests.get("https://finnhub.io/api/v1/quote",
+                                 params={"symbol": sym, "token": api_key}, timeout=5)
+                d = r.json()
+                if d.get("c") and d["c"] > 0:
+                    return round(float(d["c"]), 1)
+            except Exception:
+                pass
+    return None
+
+
+@st.cache_data(ttl=3600, max_entries=3)
+def get_treasury_spread():
+    """미국채 10년-2년 스프레드 (%p). FRED. 실패시 None."""
+    api_key = _secret("FRED_API_KEY")
+    if not api_key:
+        return None
+    try:
+        r = requests.get("https://api.stlouisfed.org/fred/series/observations",
+                         params={"series_id": "T10Y2Y", "api_key": api_key,
+                                 "file_type": "json", "sort_order": "desc", "limit": 1},
+                         timeout=5)
+        if r.status_code == 200:
+            obs = r.json().get("observations", [])
+            if obs and obs[0].get("value") not in (".", None):
+                return round(float(obs[0]["value"]), 2)
+    except Exception:
+        pass
+    return None
+
+
+
+
+
 # ===== 계산 =====
 def fmt_won(v):
     return f"{v:,.0f}원"
@@ -593,17 +650,18 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 신호: 목표비중과 1%p 이상 벌어지면 매수/매도 금액 표시 (참고용, 판단은 직접)
+        # 신호: 목표비중 ±7% 상대 밴드 → 매수/매도 금액 표시
         if tgt_w == 0:
             sig_html = '<span style="color:#666;font-size:13px;">-</span>'
         else:
             tgt_amt = tgt_w / 100 * total_eval
             diff = abs(tgt_amt - r["eval_amt"])
-            gap = cur_w - tgt_w  # +면 초과(매도), -면 미달(매수)
-            if gap < -1.0:
+            upper = tgt_w * 1.07
+            lower = tgt_w * 0.93
+            if cur_w < lower:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
                             f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(diff)}</div>')
-            elif gap > 1.0:
+            elif cur_w > upper:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
                             f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(diff)}</div>')
             else:
@@ -677,6 +735,87 @@ else:
     if grand_eval > 0:
         _total_ph.markdown('<div style="padding:8px 2px 0;">' + summary_block(grand_eval, grand_buy, big=True) + '</div>',
                            unsafe_allow_html=True)
+
+    # ===== 지표바 5개 (공포·VIX·환율·미국채·비중) =====
+    fg = get_fear_greed()
+    vix = get_vix()
+    spread = get_treasury_spread()
+
+    def _ind(label, value, sub=""):
+        return (f'<div style="flex:1;text-align:center;padding:8px 2px;">'
+                f'<div style="font-size:10px;color:#888;margin-bottom:3px;">{label}</div>'
+                f'<div style="font-size:15px;font-weight:800;color:#fff;line-height:1.1;">{value}</div>'
+                f'<div style="font-size:9px;color:#777;margin-top:2px;">{sub}</div></div>')
+
+    # 공포지수 색상/설명
+    if fg is not None:
+        fg_sub = "극공포" if fg < 25 else "공포" if fg < 45 else "중립" if fg < 55 else "탐욕" if fg < 75 else "극탐욕"
+        fg_val = str(fg)
+    else:
+        fg_sub, fg_val = "–", "–"
+    vix_val = f"{vix:.1f}" if vix is not None else "–"
+    vix_sub = ("안정" if vix and vix < 20 else "경계" if vix and vix < 30 else "불안") if vix is not None else "–"
+    sp_val = f"{spread:+.2f}" if spread is not None else "–"
+    sp_sub = ("정상" if spread and spread > 0 else "역전") if spread is not None else "–"
+
+    st.markdown(
+        '<div style="display:flex;background:#141414;border:1px solid #262626;border-radius:10px;margin:12px 0 4px;">'
+        + _ind("공포지수", fg_val, fg_sub)
+        + '<div style="width:1px;background:#262626;"></div>'
+        + _ind("VIX", vix_val, vix_sub)
+        + '<div style="width:1px;background:#262626;"></div>'
+        + _ind("환율", f"{cur_fx:,.0f}", "원/$")
+        + '<div style="width:1px;background:#262626;"></div>'
+        + _ind("10Y-2Y", sp_val, sp_sub)
+        + '<div style="width:1px;background:#262626;"></div>'
+        + _ind("비중", "📊", "탭")
+        + '</div>', unsafe_allow_html=True)
+
+    # 비중(도넛) 토글
+    if st.checkbox("종목별 비중 보기", key="show_donut"):
+        items = []
+        for nm in names:
+            for rr in acct_data[nm]["rows"]:
+                if rr["eval_amt"]:
+                    ev = rr["eval_amt"] * (cur_fx if rr["usd"] else 1)
+                    items.append((rr["name"], ev))
+        if items:
+            _tot = sum(v for _, v in items) or 1
+            palette = ["#4dd2ff", "#ff9f4d", "#4dff88", "#ff4d4d", "#c04dff", "#ffd633",
+                       "#4d94ff", "#ff4dcb", "#9fe14d", "#4dffea", "#ff7a4d", "#4dffb0"]
+            _sz, _ro, _ri = 150, 68, 42
+            _c = _sz / 2
+            _rm = (_ro + _ri) / 2
+            segs = labs = ""
+            ang = -90.0
+            for i, (an, av) in enumerate(sorted(items, key=lambda x: -x[1])):
+                col = palette[i % len(palette)]
+                pct = av / _tot * 100
+                sw = pct / 100 * 360
+                a0, a1 = math.radians(ang), math.radians(ang + sw)
+                x0o, y0o = _c + _ro*math.cos(a0), _c + _ro*math.sin(a0)
+                x1o, y1o = _c + _ro*math.cos(a1), _c + _ro*math.sin(a1)
+                x0i, y0i = _c + _ri*math.cos(a1), _c + _ri*math.sin(a1)
+                x1i, y1i = _c + _ri*math.cos(a0), _c + _ri*math.sin(a0)
+                lg = 1 if sw > 180 else 0
+                segs += f'<path d="M {x0o:.1f} {y0o:.1f} A {_ro} {_ro} 0 {lg} 1 {x1o:.1f} {y1o:.1f} L {x0i:.1f} {y0i:.1f} A {_ri} {_ri} 0 {lg} 0 {x1i:.1f} {y1i:.1f} Z" fill="{col}"/>'
+                if pct >= 6:
+                    ma = math.radians(ang + sw/2)
+                    lx, ly = _c + _rm*math.cos(ma), _c + _rm*math.sin(ma)
+                    labs += f'<text x="{lx:.1f}" y="{ly+3:.1f}" text-anchor="middle" font-size="11" font-weight="800" fill="#0a0a0a">{pct:.0f}</text>'
+                ang += sw
+            legend = ""
+            for i, (an, av) in enumerate(sorted(items, key=lambda x: -x[1])):
+                col = palette[i % len(palette)]
+                pct = av / _tot * 100
+                legend += (f'<span style="display:inline-flex;align-items:center;gap:4px;margin:2px 10px 2px 0;">'
+                           f'<span style="width:9px;height:9px;border-radius:2px;background:{col};"></span>'
+                           f'<span style="font-size:11px;color:#ccc;white-space:nowrap;">{an} {pct:.0f}%</span></span>')
+            st.markdown(
+                f'<div style="text-align:center;margin:6px 0;">'
+                f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}">{segs}{labs}</svg></div>'
+                f'<div style="line-height:1.7;margin-bottom:8px;">{legend}</div>',
+                unsafe_allow_html=True)
 
     st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
 
