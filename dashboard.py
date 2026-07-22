@@ -711,13 +711,18 @@ _pe = st.session_state.pop("_open_edit", None)
 if _pe:
     edit_stock_dialog(_pe[0], _pe[1])
 
-_top = st.columns([3, 1])
+_top = st.columns([2.2, 1, 1])
 with _top[0]:
     _total_ph = st.empty()
 with _top[1]:
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
     if st.button("＋ 생성", key="create_acct"):
         create_account_dialog()
+with _top[2]:
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    if st.button("📊 비중", key="toggle_donut"):
+        st.session_state["_show_donut"] = not st.session_state.get("_show_donut", False)
+        st.rerun()
 
 if not st.session_state.portfolios:
     st.info("계좌가 없습니다. '＋ 생성'으로 만들어보세요.")
@@ -736,43 +741,8 @@ else:
         _total_ph.markdown('<div style="padding:8px 2px 0;">' + summary_block(grand_eval, grand_buy, big=True) + '</div>',
                            unsafe_allow_html=True)
 
-    # ===== 지표바 5개 (공포·VIX·환율·미국채·비중) =====
-    fg = get_fear_greed()
-    vix = get_vix()
-    spread = get_treasury_spread()
-
-    def _ind(label, value, sub=""):
-        return (f'<div style="flex:1;text-align:center;padding:8px 2px;">'
-                f'<div style="font-size:10px;color:#888;margin-bottom:3px;">{label}</div>'
-                f'<div style="font-size:15px;font-weight:800;color:#fff;line-height:1.1;">{value}</div>'
-                f'<div style="font-size:9px;color:#777;margin-top:2px;">{sub}</div></div>')
-
-    # 공포지수 색상/설명
-    if fg is not None:
-        fg_sub = "극공포" if fg < 25 else "공포" if fg < 45 else "중립" if fg < 55 else "탐욕" if fg < 75 else "극탐욕"
-        fg_val = str(fg)
-    else:
-        fg_sub, fg_val = "–", "–"
-    vix_val = f"{vix:.1f}" if vix is not None else "–"
-    vix_sub = ("안정" if vix and vix < 20 else "경계" if vix and vix < 30 else "불안") if vix is not None else "–"
-    sp_val = f"{spread:+.2f}" if spread is not None else "–"
-    sp_sub = ("정상" if spread and spread > 0 else "역전") if spread is not None else "–"
-
-    st.markdown(
-        '<div style="display:flex;background:#141414;border:1px solid #262626;border-radius:10px;margin:12px 0 4px;">'
-        + _ind("공포지수", fg_val, fg_sub)
-        + '<div style="width:1px;background:#262626;"></div>'
-        + _ind("VIX", vix_val, vix_sub)
-        + '<div style="width:1px;background:#262626;"></div>'
-        + _ind("환율", f"{cur_fx:,.0f}", "원/$")
-        + '<div style="width:1px;background:#262626;"></div>'
-        + _ind("10Y-2Y", sp_val, sp_sub)
-        + '<div style="width:1px;background:#262626;"></div>'
-        + _ind("비중", "📊", "탭")
-        + '</div>', unsafe_allow_html=True)
-
-    # 비중(도넛) 토글
-    if st.checkbox("종목별 비중 보기", key="show_donut"):
+    # 비중(도넛) 토글 - 버튼
+    if st.session_state.get("_show_donut"):
         items = []
         for nm in names:
             for rr in acct_data[nm]["rows"]:
@@ -812,12 +782,32 @@ else:
                            f'<span style="width:9px;height:9px;border-radius:2px;background:{col};"></span>'
                            f'<span style="font-size:11px;color:#ccc;white-space:nowrap;">{an} {pct:.0f}%</span></span>')
             st.markdown(
-                f'<div style="text-align:center;margin:6px 0;">'
+                f'<div style="text-align:center;margin:10px 0 6px;">'
                 f'<svg width="{_sz}" height="{_sz}" viewBox="0 0 {_sz} {_sz}">{segs}{labs}</svg></div>'
                 f'<div style="line-height:1.7;margin-bottom:8px;">{legend}</div>',
                 unsafe_allow_html=True)
 
     st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
+
+    # 디버그: 시세 소스 점검 (문제 진단용)
+    with st.expander("🔧 시세 점검"):
+        st.caption("각 소스가 값을 가져오는지 확인")
+        kis_tok = _kis_token()
+        st.write(f"KIS 토큰: {'✅ 발급됨' if kis_tok else '❌ 실패 (앱키/시크릿 확인)'}")
+        # 첫 국내 종목으로 테스트
+        test_kr = None
+        for nm in names:
+            for h in st.session_state.portfolios[nm]:
+                if is_korean(h["ticker"]):
+                    test_kr = h["ticker"]
+                    break
+            if test_kr:
+                break
+        if test_kr:
+            kp = get_kis_price(test_kr)
+            npv = get_naver_price(test_kr)
+            st.write(f"국내 {test_kr}: 한투={kp if kp else '❌'} / 네이버={npv if npv else '❌'}")
+        st.write(f"환율: {cur_fx:,.0f}원")
 
     for nm in names:
         d = acct_data[nm]
@@ -834,10 +824,10 @@ else:
             if st.button("관리", key=f"mng_{nm}"):
                 manage_dialog(nm)
 
-        # 통화 토글 (해외)
+        # 통화 토글 (해외) - 기본 원화, 달러는 눌러야
         show_krw = True
         if d["has_usd"]:
-            cm = st.radio("통화", ["$ 달러", "₩ 원화"], horizontal=True,
+            cm = st.radio("통화", ["₩ 원화", "$ 달러"], horizontal=True,
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
 
