@@ -112,7 +112,17 @@ def save_portfolios():
 
 # ===== 시세 조회 =====
 def is_korean(ticker):
-    return ticker.endswith(".KS") or ticker.endswith(".KQ")
+    t = ticker.strip().upper()
+    if t.endswith(".KS") or t.endswith(".KQ"):
+        return True
+    # 순수 6자리 숫자 = 국내 종목코드 (예: 000660, 233740)
+    code = t.split(".")[0]
+    if code.isdigit() and len(code) == 6:
+        return True
+    # 한글이 포함되면 국내 종목명
+    if any('\uac00' <= ch <= '\ud7a3' for ch in ticker):
+        return True
+    return False
 
 
 # ===== 한국투자증권 KIS API =====
@@ -139,13 +149,15 @@ def _kis_token():
 
 @st.cache_data(ttl=60, max_entries=80)
 def get_kis_price(ticker):
-    """국내 주식/ETF 현재가 (한국투자증권 API)."""
+    """국내 주식/ETF 현재가 (한국투자증권 API). 6자리 코드 필요."""
     ak = _secret("KIS_APP_KEY")
     sk = _secret("KIS_APP_SECRET")
     token = _kis_token()
     if not token or not ak or not sk:
         return None
-    code = ticker.split(".")[0]
+    code = ticker.split(".")[0].strip()
+    if not (code.isdigit() and len(code) == 6):
+        return None  # 6자리 숫자코드가 아니면 한투 조회 불가
     try:
         r = requests.get(
             f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
@@ -788,26 +800,6 @@ else:
                 unsafe_allow_html=True)
 
     st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
-
-    # 디버그: 시세 소스 점검 (문제 진단용)
-    with st.expander("🔧 시세 점검"):
-        st.caption("각 소스가 값을 가져오는지 확인")
-        kis_tok = _kis_token()
-        st.write(f"KIS 토큰: {'✅ 발급됨' if kis_tok else '❌ 실패 (앱키/시크릿 확인)'}")
-        # 첫 국내 종목으로 테스트
-        test_kr = None
-        for nm in names:
-            for h in st.session_state.portfolios[nm]:
-                if is_korean(h["ticker"]):
-                    test_kr = h["ticker"]
-                    break
-            if test_kr:
-                break
-        if test_kr:
-            kp = get_kis_price(test_kr)
-            npv = get_naver_price(test_kr)
-            st.write(f"국내 {test_kr}: 한투={kp if kp else '❌'} / 네이버={npv if npv else '❌'}")
-        st.write(f"환율: {cur_fx:,.0f}원")
 
     for nm in names:
         d = acct_data[nm]
