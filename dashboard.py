@@ -114,11 +114,104 @@ def is_korean(ticker):
     return ticker.endswith(".KS") or ticker.endswith(".KQ")
 
 
+# ===== 한국투자증권 KIS API =====
+KIS_BASE = "https://openapi.koreainvestment.com:9443"
+
+
+@st.cache_data(ttl=3600 * 12, max_entries=2)
+def _kis_token():
+    """KIS 접근토큰 발급 (12시간 캐시). 실패 시 None."""
+    ak = _secret("KIS_APP_KEY")
+    sk = _secret("KIS_APP_SECRET")
+    if not ak or not sk:
+        return None
+    try:
+        r = requests.post(f"{KIS_BASE}/oauth2/tokenP",
+                          json={"grant_type": "client_credentials", "appkey": ak, "appsecret": sk},
+                          timeout=6)
+        if r.status_code == 200:
+            return r.json().get("access_token")
+    except Exception:
+        pass
+    return None
+
+
+@st.cache_data(ttl=60, max_entries=80)
+def get_kis_price(ticker):
+    """국내 주식/ETF 현재가 (한국투자증권 API)."""
+    ak = _secret("KIS_APP_KEY")
+    sk = _secret("KIS_APP_SECRET")
+    token = _kis_token()
+    if not token or not ak or not sk:
+        return None
+    code = ticker.split(".")[0]
+    try:
+        r = requests.get(
+            f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-price",
+            headers={
+                "authorization": f"Bearer {token}",
+                "appkey": ak, "appsecret": sk,
+                "tr_id": "FHKST01010100",
+                "custtype": "P",
+            },
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
+            timeout=6)
+        if r.status_code == 200:
+            d = r.json()
+            price = (d.get("output") or {}).get("stck_prpr")
+            if price:
+                return float(str(price).replace(",", ""))
+    except Exception:
+        pass
+    return None
+
+
 CRYPTO_ALIASES = {
     "BTC": "BTCUSDT", "비트코인": "BTCUSDT", "BITCOIN": "BTCUSDT", "BTCUSD": "BTCUSDT",
     "BTC-USD": "BTCUSDT", "BTCUSDT": "BTCUSDT", "ETH": "ETHUSDT", "이더리움": "ETHUSDT",
     "ETHUSD": "ETHUSDT", "SOL": "SOLUSDT", "XRP": "XRPUSDT", "DOGE": "DOGEUSDT",
 }
+
+
+# 한투 해외거래소 코드 (미국 종목은 어느 거래소인지 몰라서 순서대로 시도)
+_KIS_OVERSEAS_EXCH = ["NAS", "NYS", "AMS"]  # 나스닥, 뉴욕, 아멕스
+_KIS_EXCH_CACHE = {}  # 티커별 성공 거래소 기억
+
+
+@st.cache_data(ttl=60, max_entries=80)
+def get_kis_overseas_price(ticker):
+    """미국 주식/ETF 현재가 (한국투자증권 해외주식 API)."""
+    ak = _secret("KIS_APP_KEY")
+    sk = _secret("KIS_APP_SECRET")
+    token = _kis_token()
+    if not token or not ak or not sk:
+        return None
+    sym = ticker.upper()
+    # 이전에 성공한 거래소부터 시도
+    known = _KIS_EXCH_CACHE.get(sym)
+    exchanges = ([known] + [e for e in _KIS_OVERSEAS_EXCH if e != known]) if known else _KIS_OVERSEAS_EXCH
+    for exch in exchanges:
+        try:
+            r = requests.get(
+                f"{KIS_BASE}/uapi/overseas-price/v1/quotations/price",
+                headers={
+                    "authorization": f"Bearer {token}",
+                    "appkey": ak, "appsecret": sk,
+                    "tr_id": "HHDFS00000300",
+                    "custtype": "P",
+                },
+                params={"AUTH": "", "EXCD": exch, "SYMB": sym},
+                timeout=6)
+            if r.status_code == 200:
+                d = r.json()
+                out = d.get("output") or {}
+                price = out.get("last") or out.get("stck_prpr")
+                if price and float(str(price).replace(",", "")) > 0:
+                    _KIS_EXCH_CACHE[sym] = exch  # 다음부터 이 거래소 우선
+                    return float(str(price).replace(",", ""))
+        except Exception:
+            pass
+    return None
 
 
 def crypto_symbol(ticker):
@@ -243,9 +336,16 @@ def get_crypto_price(ticker):
 
 def get_current_price(ticker):
     if is_korean(ticker):
-        return get_naver_price(ticker)
+        p = get_kis_price(ticker)   # 한투 국내 API 우선
+        if p:
+            return p
+        return get_naver_price(ticker)  # 폴백: 네이버/다음
     if is_crypto(ticker):
         return get_crypto_price(ticker)
+    # 미국 주식: 한투 해외 API 우선, 실패 시 Finnhub 폴백
+    p = get_kis_overseas_price(ticker)
+    if p:
+        return p
     return get_finnhub_price(ticker)
 
 
