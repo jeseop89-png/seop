@@ -684,16 +684,16 @@ def render_holdings(acct, data, cur_fx, show_krw):
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.2fr 1.5fr 0.7fr 0.9fr;gap:0;align-items:center;">'
-            f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
+            f'<div style="padding:2px 10px 2px 2px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
-            f'<div style="text-align:right;padding:0 6px;min-width:0;">'
+            f'<div style="text-align:right;padding:2px 10px;min-width:0;border-left:1px solid #232323;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;">{money(r["eval_amt"])}</div>'
             f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
-            f'<div style="text-align:center;padding:0 2px;">'
+            f'<div style="text-align:center;padding:2px 8px;border-left:1px solid #232323;">'
             f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
             f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
-            f'<div style="text-align:right;padding:0 4px;">{sig_html}</div>'
+            f'<div style="text-align:right;padding:2px 4px 2px 8px;border-left:1px solid #232323;">{sig_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
@@ -806,14 +806,14 @@ else:
         holdings = st.session_state.portfolios[nm]
         buy_krw, eval_krw = d["total_buy_krw"], d["total_eval_krw"]
 
-        # 계좌명 + 관리
-        hc = st.columns([3, 1])
+        # 계좌명 + 관리(+)
+        hc = st.columns([4, 1])
         with hc[0]:
             st.markdown(f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;">{nm} '
                         f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
                         unsafe_allow_html=True)
         with hc[1]:
-            if st.button("관리", key=f"mng_{nm}"):
+            if st.button("＋", key=f"mng_{nm}", help="종목 관리"):
                 manage_dialog(nm)
 
         # 통화 토글 (해외) - 기본 원화, 달러는 눌러야
