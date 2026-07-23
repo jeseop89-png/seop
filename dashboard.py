@@ -148,8 +148,8 @@ def _kis_token():
 
 
 @st.cache_data(ttl=60, max_entries=80)
-def get_kis_price(ticker):
-    """국내 주식/ETF 현재가 (한국투자증권 API). 6자리 코드 필요."""
+def get_kis_quote(ticker):
+    """국내 시세 (현재가 + 52주최고가) - 한투 API 1회 호출."""
     ak = _secret("KIS_APP_KEY")
     sk = _secret("KIS_APP_SECRET")
     token = _kis_token()
@@ -170,13 +170,25 @@ def get_kis_price(ticker):
             params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code},
             timeout=6)
         if r.status_code == 200:
-            d = r.json()
-            price = (d.get("output") or {}).get("stck_prpr")
+            out = (r.json().get("output") or {})
+            def _num(v):
+                try:
+                    return float(str(v).replace(",", "")) if v else None
+                except Exception:
+                    return None
+            price = _num(out.get("stck_prpr"))
             if price:
-                return float(str(price).replace(",", ""))
+                return {"price": price,
+                        "high52": _num(out.get("w52_hgpr")),   # 52주 최고가
+                        "low52": _num(out.get("w52_lwpr"))}
     except Exception:
         pass
     return None
+
+
+def get_kis_price(ticker):
+    q = get_kis_quote(ticker)
+    return q["price"] if q else None
 
 
 CRYPTO_ALIASES = {
@@ -225,6 +237,36 @@ def get_kis_overseas_price(ticker):
         except Exception:
             pass
     return None
+
+
+@st.cache_data(ttl=3600, max_entries=60)
+def get_finnhub_52w_high(ticker):
+    """미국 종목 52주 최고가 (Finnhub metric - 무료 티어 지원)."""
+    key = _secret("FINNHUB_API_KEY")
+    if not key:
+        return None
+    try:
+        r = requests.get("https://finnhub.io/api/v1/stock/metric",
+                         params={"symbol": ticker.upper(), "metric": "all", "token": key},
+                         timeout=6)
+        if r.status_code == 200:
+            m = r.json().get("metric") or {}
+            v = m.get("52WeekHigh")
+            if v:
+                return float(v)
+    except Exception:
+        pass
+    return None
+
+
+def get_52w_high(ticker):
+    """52주 최고가 - 국내는 한투(추가호출 없음), 미국은 Finnhub."""
+    if is_korean(ticker):
+        q = get_kis_quote(ticker)
+        return q.get("high52") if q else None
+    if is_crypto(ticker):
+        return None
+    return get_finnhub_52w_high(ticker)
 
 
 def crypto_symbol(ticker):
@@ -504,8 +546,12 @@ def compute_account(holdings, cur_fx):
         else:
             krw_buy += buy_amt
             krw_eval += eval_amt
+        try:
+            h52 = get_52w_high(tk)
+        except Exception:
+            h52 = None
         rows.append({**h, "price": price, "buy_amt": buy_amt, "eval_amt": eval_amt,
-                     "usd": usd, "buy_fx": buy_fx})
+                     "usd": usd, "buy_fx": buy_fx, "high52": h52})
     return {
         "rows": rows,
         "total_buy_krw": usd_buy_krw + krw_buy,
@@ -681,12 +727,23 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         name_size = 14 if len(r["name"]) <= 9 else 12 if len(r["name"]) <= 14 else 10
 
+        # 52주 고점 대비 하락률
+        h52 = r.get("high52")
+        price_now = r.get("price")
+        if h52 and price_now and h52 > 0:
+            dd = (price_now - h52) / h52 * 100
+            dd_color = "#4d94ff" if dd < 0 else "#888"
+            dd_html = f'<div style="font-size:10px;color:{dd_color};margin-top:2px;white-space:nowrap;">고점대비 {dd:.1f}%</div>'
+        else:
+            dd_html = ""
+
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.05fr 1.75fr 0.65fr 0.75fr;gap:0;align-items:center;">'
             f'<div style="padding:2px 8px 2px 2px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div></div>'
+            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
+            f'{dd_html}</div>'
             f'<div style="text-align:right;padding:2px 8px;min-width:0;overflow:hidden;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
             f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
