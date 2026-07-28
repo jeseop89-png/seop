@@ -913,32 +913,38 @@ def render_holdings(acct, data, cur_fx, show_krw):
         else:
             rsi_html = ""
 
-        # 현재가 / 평단가
+        # 현재가 / 평단가 (각 칸 아래로 배치)
         avg_p = r.get("avg_price", 0)
         if usd:
             cur_p_str = fmt_usd(price_now) if price_now else "-"
             avg_p_str = fmt_usd(avg_p)
         else:
-            cur_p_str = f"{price_now:,.0f}" if price_now else "-"
-            avg_p_str = f"{avg_p:,.0f}"
-        price_html = (f'<div style="font-size:11px;color:#aaa;margin-top:3px;white-space:nowrap;">'
-                      f'현재 <b style="color:#ddd;">{cur_p_str}</b> · 평단 {avg_p_str}</div>')
+            cur_p_str = f"{price_now:,.0f}원" if price_now else "-"
+            avg_p_str = f"{avg_p:,.0f}원"
+        avg_html = f'<div style="font-size:10px;color:#999;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avg_p_str}</div>'
+        cur_html = f'<div style="font-size:10px;color:#bbb;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {cur_p_str}</div>'
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:0;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:0;align-items:start;">'
+            # 1칸: 종목 / 수량 / 고점대비
             f'<div style="padding:2px 8px 2px 2px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
-            f'{price_html}{dd_html}</div>'
+            f'{dd_html}</div>'
+            # 2칸: 평가금 / 수익금 / RSI
             f'<div style="text-align:right;padding:2px 8px;min-width:0;overflow:hidden;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
             f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div>'
             f'{rsi_html}</div>'
+            # 3칸: 목표 / 현재 / 평단
             f'<div style="text-align:center;padding:2px 3px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
-            f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">{sig_html}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div>'
+            f'{avg_html}</div>'
+            # 4칸: 신호 / 금액 / 현재가
+            f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">'
+            f'{sig_html}{cur_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
