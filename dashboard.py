@@ -378,11 +378,12 @@ def get_closes(ticker):
 
 
 def calc_rsi(closes, period=14):
-    """RSI 계산. 데이터 부족하면 None."""
+    """RSI (와일더 방식, HTS 표준). 데이터 부족하면 None."""
     if len(closes) < period + 1:
         return None
+    # 초기 평균 (첫 period 구간 단순평균)
     gains = losses = 0.0
-    for i in range(-period, 0):
+    for i in range(1, period + 1):
         ch = closes[i] - closes[i - 1]
         if ch >= 0:
             gains += ch
@@ -390,6 +391,13 @@ def calc_rsi(closes, period=14):
             losses -= ch
     avg_g = gains / period
     avg_l = losses / period
+    # 이후 와일더 평활 (누적)
+    for i in range(period + 1, len(closes)):
+        ch = closes[i] - closes[i - 1]
+        g = ch if ch > 0 else 0
+        l = -ch if ch < 0 else 0
+        avg_g = (avg_g * (period - 1) + g) / period
+        avg_l = (avg_l * (period - 1) + l) / period
     if avg_l == 0:
         return 100.0
     rs = avg_g / avg_l
@@ -418,11 +426,11 @@ def calc_bollinger(closes, period=20, mult=2.0):
 
 @st.cache_data(ttl=600, max_entries=60)
 def get_indicators(ticker):
-    """RSI + 볼린저 위치. 1회 호출로 계산."""
+    """RSI만. 1회 호출로 계산."""
     closes = get_closes(ticker)
     if not closes:
-        return {"rsi": None, "boll": None}
-    return {"rsi": calc_rsi(closes), "boll": calc_bollinger(closes)[2]}
+        return {"rsi": None}
+    return {"rsi": calc_rsi(closes)}
 
 
 def crypto_symbol(ticker):
@@ -709,10 +717,10 @@ def compute_account(holdings, cur_fx):
         try:
             ind = get_indicators(tk)
         except Exception:
-            ind = {"rsi": None, "boll": None}
+            ind = {"rsi": None}
         rows.append({**h, "price": price, "buy_amt": buy_amt, "eval_amt": eval_amt,
                      "usd": usd, "buy_fx": buy_fx, "high52": h52,
-                     "rsi": ind.get("rsi"), "boll": ind.get("boll")})
+                     "rsi": ind.get("rsi")})
     return {
         "rows": rows,
         "total_buy_krw": usd_buy_krw + krw_buy,
@@ -845,7 +853,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.05fr 1.75fr 0.65fr 0.75fr;gap:2px 0;'
+        '<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:2px 0;'
         'padding:4px 6px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
         '<div>종목 / 수량</div>'
         '<div style="text-align:right;">평가금 / 수익금(%)</div>'
@@ -878,10 +886,10 @@ def render_holdings(acct, data, cur_fx, show_krw):
             gap = cur_w - tgt_w
             if gap < -1.0:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
-                            f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(diff)}</div>')
+                            f'<div style="font-size:11px;color:#ff4d4d;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fmt_won(diff)}</div>')
             elif gap > 1.0:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
-                            f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(diff)}</div>')
+                            f'<div style="font-size:11px;color:#4d94ff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fmt_won(diff)}</div>')
             else:
                 sig_html = '<div style="font-size:13px;font-weight:700;color:#888;">적정</div>'
 
@@ -905,31 +913,32 @@ def render_holdings(acct, data, cur_fx, show_krw):
         else:
             rsi_html = ""
 
-        # 볼린저: 상단돌파(매도)/하단돌파(매수)
-        boll = r.get("boll")
-        if boll == "over":
-            boll_html = '<div style="font-size:10px;font-weight:700;color:#4d94ff;margin-top:3px;white-space:nowrap;">볼린저 상단↑</div>'
-        elif boll == "under":
-            boll_html = '<div style="font-size:10px;font-weight:700;color:#ff4d4d;margin-top:3px;white-space:nowrap;">볼린저 하단↓</div>'
+        # 현재가 / 평단가
+        avg_p = r.get("avg_price", 0)
+        if usd:
+            cur_p_str = fmt_usd(price_now) if price_now else "-"
+            avg_p_str = fmt_usd(avg_p)
         else:
-            boll_html = ""
+            cur_p_str = f"{price_now:,.0f}" if price_now else "-"
+            avg_p_str = f"{avg_p:,.0f}"
+        price_html = (f'<div style="font-size:11px;color:#aaa;margin-top:3px;white-space:nowrap;">'
+                      f'현재 <b style="color:#ddd;">{cur_p_str}</b> · 평단 {avg_p_str}</div>')
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.05fr 1.75fr 0.65fr 0.75fr;gap:0;align-items:center;">'
+            f'<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:0;align-items:center;">'
             f'<div style="padding:2px 8px 2px 2px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
             f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
-            f'{dd_html}</div>'
+            f'{price_html}{dd_html}</div>'
             f'<div style="text-align:right;padding:2px 8px;min-width:0;overflow:hidden;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
             f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div>'
             f'{rsi_html}</div>'
-            f'<div style="text-align:center;padding:2px 4px;overflow:hidden;border-left:1px solid #3a3a3a;">'
+            f'<div style="text-align:center;padding:2px 3px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div>'
-            f'{boll_html}</div>'
-            f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;border-left:1px solid #3a3a3a;">{sig_html}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
+            f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">{sig_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
 
