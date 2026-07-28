@@ -271,7 +271,7 @@ def get_52w_high(ticker):
 
 @st.cache_data(ttl=600, max_entries=60)
 def get_kis_daily_closes(ticker):
-    """국내 종목 최근 일별 종가 배열 (한투). RSI/볼린저용."""
+    """국내 종목 최근 일별 종가 배열 (한투 기간별시세, 과거→현재 순)."""
     ak = _secret("KIS_APP_KEY")
     sk = _secret("KIS_APP_SECRET")
     token = _kis_token()
@@ -281,21 +281,26 @@ def get_kis_daily_closes(ticker):
     if not (code.isdigit() and len(code) == 6):
         return []
     try:
+        import datetime
+        today = datetime.datetime.now().strftime("%Y%m%d")
+        start = (datetime.datetime.now() - datetime.timedelta(days=90)).strftime("%Y%m%d")
         r = requests.get(
-            f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-price",
+            f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice",
             headers={"authorization": f"Bearer {token}", "appkey": ak, "appsecret": sk,
-                     "tr_id": "FHKST01010400", "custtype": "P"},
+                     "tr_id": "FHKST03010100", "custtype": "P"},
             params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                    "FID_INPUT_DATE_1": start, "FID_INPUT_DATE_2": today,
                     "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "0"},
             timeout=6)
         if r.status_code == 200:
-            out = r.json().get("output") or []
-            # 최신순으로 오므로 뒤집어서 과거→현재
+            out = r.json().get("output2") or []
             closes = []
-            for row in reversed(out):
+            for row in out:
                 v = row.get("stck_clpr")
-                if v:
+                if v and float(str(v).replace(",", "")) > 0:
                     closes.append(float(str(v).replace(",", "")))
+            # output2는 최신순 → 과거→현재로 뒤집기
+            closes.reverse()
             return closes
     except Exception:
         pass
@@ -324,11 +329,51 @@ def get_finnhub_daily_closes(ticker):
     return []
 
 
+@st.cache_data(ttl=600, max_entries=60)
+def get_kis_overseas_closes(ticker):
+    """미국 종목 일별 종가 (한투 해외 기간별시세). 과거→현재 순."""
+    ak = _secret("KIS_APP_KEY")
+    sk = _secret("KIS_APP_SECRET")
+    token = _kis_token()
+    if not token or not ak or not sk:
+        return []
+    sym = ticker.upper()
+    known = _KIS_EXCH_CACHE.get(sym)
+    exchanges = ([known] + [e for e in _KIS_OVERSEAS_EXCH if e != known]) if known else _KIS_OVERSEAS_EXCH
+    for exch in exchanges:
+        try:
+            r = requests.get(
+                f"{KIS_BASE}/uapi/overseas-price/v1/quotations/dailyprice",
+                headers={"authorization": f"Bearer {token}", "appkey": ak, "appsecret": sk,
+                         "tr_id": "HHDFS76240000", "custtype": "P"},
+                params={"AUTH": "", "EXCD": exch, "SYMB": sym,
+                        "GUBN": "0", "BYMD": "", "MODP": "1"},
+                timeout=6)
+            if r.status_code == 200:
+                out = r.json().get("output2") or []
+                closes = []
+                for row in out:
+                    v = row.get("clos")
+                    if v and float(str(v).replace(",", "")) > 0:
+                        closes.append(float(str(v).replace(",", "")))
+                if closes:
+                    closes.reverse()  # 최신순 → 과거→현재
+                    _KIS_EXCH_CACHE[sym] = exch
+                    return closes
+        except Exception:
+            pass
+    return []
+
+
 def get_closes(ticker):
     if is_korean(ticker):
         return get_kis_daily_closes(ticker)
     if is_crypto(ticker):
         return []
+    # 미국: 한투 해외 일봉 우선, 실패 시 Finnhub
+    c = get_kis_overseas_closes(ticker)
+    if c:
+        return c
     return get_finnhub_daily_closes(ticker)
 
 
