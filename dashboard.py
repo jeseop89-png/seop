@@ -853,12 +853,10 @@ def render_holdings(acct, data, cur_fx, show_krw):
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
     st.markdown(
-        '<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:2px 0;'
-        'padding:4px 6px;font-size:10px;color:#777;border-bottom:1px solid #222;margin-bottom:4px;">'
-        '<div>종목 / 수량</div>'
-        '<div style="text-align:right;">평가금 / 수익금(%)</div>'
-        '<div style="text-align:center;">목표 / 현재</div>'
-        '<div style="text-align:right;">신호 / 금액</div>'
+        '<div style="display:flex;padding:2px 14px 6px;font-size:10px;color:#777;">'
+        '<div style="flex:1.3;">종목 / 수량</div>'
+        '<div style="flex:1.4;text-align:right;">평가금 / 손익</div>'
+        '<div style="flex:0.9;text-align:right;">목표→현재 / 신호</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -879,73 +877,65 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         # 신호: 목표비중과 1%p 이상 벌어지면 매수/매도 금액 (내가 판단)
         if tgt_w == 0:
-            sig_html = '<span style="color:#666;font-size:13px;">-</span>'
+            sig_html = '<span style="color:#666;font-size:12px;">-</span>'
         else:
             tgt_amt = tgt_w / 100 * total_eval
             diff = abs(tgt_amt - r["eval_amt"])
             gap = cur_w - tgt_w
             if gap < -1.0:
-                sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
-                            f'<div style="font-size:11px;color:#ff4d4d;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fmt_won(diff)}</div>')
+                sig_html = (f'<span style="font-size:13px;font-weight:800;color:#ff4d4d;">매수</span> '
+                            f'<span style="font-size:11px;color:#ff4d4d;">{fmt_won(diff)}</span>')
             elif gap > 1.0:
-                sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
-                            f'<div style="font-size:11px;color:#4d94ff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fmt_won(diff)}</div>')
+                sig_html = (f'<span style="font-size:13px;font-weight:800;color:#4d94ff;">매도</span> '
+                            f'<span style="font-size:11px;color:#4d94ff;">{fmt_won(diff)}</span>')
             else:
-                sig_html = '<div style="font-size:13px;font-weight:700;color:#888;">적정</div>'
+                sig_html = '<span style="font-size:12px;font-weight:700;color:#888;">적정</span>'
 
-        name_size = 14 if len(r["name"]) <= 9 else 12 if len(r["name"]) <= 14 else 10
+        name_size = 15 if len(r["name"]) <= 10 else 13 if len(r["name"]) <= 16 else 11
 
-        # 52주 고점 대비 하락률
-        h52 = r.get("high52")
-        price_now = r.get("price")
-        if h52 and price_now and h52 > 0:
-            dd = (price_now - h52) / h52 * 100
-            dd_color = "#4d94ff" if dd < 0 else "#888"
-            dd_html = f'<div style="font-size:10px;color:{dd_color};margin-top:2px;white-space:nowrap;">고점대비 {dd:.1f}%</div>'
-        else:
-            dd_html = ""
-
-        # RSI: 70↑ 빨강, 30↓ 파랑, 중간 회색
-        rsi = r.get("rsi")
-        if rsi is not None:
-            rc = "#ff4d4d" if rsi >= 70 else "#4d94ff" if rsi <= 30 else "#aaa"
-            rsi_html = f'<div style="font-size:11px;font-weight:700;color:{rc};margin-top:3px;white-space:nowrap;">RSI {rsi:.0f}</div>'
-        else:
-            rsi_html = ""
-
-        # 현재가 / 평단가 (각 칸 아래로 배치)
+        # 하단 정보 스트립 (현재가·평단·RSI·고점) - 전체폭 가로 나열
         avg_p = r.get("avg_price", 0)
+        price_now = r.get("price")
         if usd:
             cur_p_str = fmt_usd(price_now) if price_now else "-"
             avg_p_str = fmt_usd(avg_p)
         else:
-            cur_p_str = f"{price_now:,.0f}원" if price_now else "-"
-            avg_p_str = f"{avg_p:,.0f}원"
-        avg_html = f'<div style="font-size:10px;color:#999;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avg_p_str}</div>'
-        cur_html = f'<div style="font-size:10px;color:#bbb;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {cur_p_str}</div>'
+            cur_p_str = f"{price_now:,.0f}" if price_now else "-"
+            avg_p_str = f"{avg_p:,.0f}"
+
+        info_parts = [f'현재 <b style="color:#ddd;">{cur_p_str}</b>',
+                      f'평단 <b style="color:#ddd;">{avg_p_str}</b>']
+        rsi = r.get("rsi")
+        if rsi is not None:
+            rc = "#ff4d4d" if rsi >= 70 else "#4d94ff" if rsi <= 30 else "#aaa"
+            info_parts.append(f'RSI <b style="color:{rc};">{rsi:.0f}</b>')
+        h52 = r.get("high52")
+        if h52 and price_now and h52 > 0:
+            dd = (price_now - h52) / h52 * 100
+            info_parts.append(f'고점 <b style="color:#4d94ff;">{dd:.1f}%</b>')
+        info_strip = ('<div style="font-size:11px;color:#888;margin-top:8px;padding-top:7px;'
+                      'border-top:1px solid #222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                      + '　·　'.join(info_parts) + '</div>')
 
         st.markdown(
-            f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
-            f'<div style="display:grid;grid-template-columns:1.1fr 1.5fr 0.6fr 0.95fr;gap:0;align-items:start;">'
-            # 1칸: 종목 / 수량 / 고점대비
-            f'<div style="padding:2px 8px 2px 2px;overflow:hidden;min-width:0;">'
+            f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:7px;">'
+            # 상단: 종목명·수량 / 평가금·수익 / 목표현재·신호
+            f'<div style="display:flex;align-items:flex-start;gap:8px;">'
+            # 왼쪽: 종목명 + 수량
+            f'<div style="flex:1.3;min-width:0;overflow:hidden;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:13px;font-weight:700;color:#fff;margin-top:4px;white-space:nowrap;">{r["qty"]:,.0f}주</div>'
-            f'{dd_html}</div>'
-            # 2칸: 평가금 / 수익금 / RSI
-            f'<div style="text-align:right;padding:2px 8px;min-width:0;overflow:hidden;border-left:1px solid #3a3a3a;">'
-            f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div>'
-            f'{rsi_html}</div>'
-            # 3칸: 목표 / 현재 / 평단
-            f'<div style="text-align:center;padding:2px 3px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">'
-            f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div>'
-            f'{avg_html}</div>'
-            # 4칸: 신호 / 금액 / 현재가
-            f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;min-width:0;border-left:1px solid #3a3a3a;">'
-            f'{sig_html}{cur_html}</div>'
-            f'</div></div>',
+            f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:4px;">{r["qty"]:,.0f}주</div></div>'
+            # 가운데: 평가금 + 수익금(%)
+            f'<div style="flex:1.4;min-width:0;text-align:right;overflow:hidden;">'
+            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            # 오른쪽: 목표/현재 + 신호
+            f'<div style="flex:0.9;min-width:0;text-align:right;overflow:hidden;">'
+            f'<div style="font-size:13px;font-weight:700;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:#666;">→</span> <span style="color:{cw_color};">{cur_w:.0f}%</span></div>'
+            f'<div style="margin-top:4px;">{sig_html}</div></div>'
+            f'</div>'
+            f'{info_strip}'
+            f'</div>',
             unsafe_allow_html=True)
 
 
