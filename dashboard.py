@@ -269,6 +269,117 @@ def get_52w_high(ticker):
     return get_finnhub_52w_high(ticker)
 
 
+@st.cache_data(ttl=600, max_entries=60)
+def get_kis_daily_closes(ticker):
+    """국내 종목 최근 일별 종가 배열 (한투). RSI/볼린저용."""
+    ak = _secret("KIS_APP_KEY")
+    sk = _secret("KIS_APP_SECRET")
+    token = _kis_token()
+    if not token or not ak or not sk:
+        return []
+    code = ticker.split(".")[0].strip()
+    if not (code.isdigit() and len(code) == 6):
+        return []
+    try:
+        r = requests.get(
+            f"{KIS_BASE}/uapi/domestic-stock/v1/quotations/inquire-daily-price",
+            headers={"authorization": f"Bearer {token}", "appkey": ak, "appsecret": sk,
+                     "tr_id": "FHKST01010400", "custtype": "P"},
+            params={"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
+                    "FID_PERIOD_DIV_CODE": "D", "FID_ORG_ADJ_PRC": "0"},
+            timeout=6)
+        if r.status_code == 200:
+            out = r.json().get("output") or []
+            # 최신순으로 오므로 뒤집어서 과거→현재
+            closes = []
+            for row in reversed(out):
+                v = row.get("stck_clpr")
+                if v:
+                    closes.append(float(str(v).replace(",", "")))
+            return closes
+    except Exception:
+        pass
+    return []
+
+
+@st.cache_data(ttl=600, max_entries=60)
+def get_finnhub_daily_closes(ticker):
+    """미국 종목 일별 종가 - Finnhub candle (무료 제한 가능)."""
+    key = _secret("FINNHUB_API_KEY")
+    if not key:
+        return []
+    try:
+        import time
+        now = int(time.time())
+        r = requests.get("https://finnhub.io/api/v1/stock/candle",
+                         params={"symbol": ticker.upper(), "resolution": "D",
+                                 "from": now - 60 * 86400, "to": now, "token": key},
+                         timeout=6)
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("c"):
+                return [float(x) for x in d["c"]]
+    except Exception:
+        pass
+    return []
+
+
+def get_closes(ticker):
+    if is_korean(ticker):
+        return get_kis_daily_closes(ticker)
+    if is_crypto(ticker):
+        return []
+    return get_finnhub_daily_closes(ticker)
+
+
+def calc_rsi(closes, period=14):
+    """RSI 계산. 데이터 부족하면 None."""
+    if len(closes) < period + 1:
+        return None
+    gains = losses = 0.0
+    for i in range(-period, 0):
+        ch = closes[i] - closes[i - 1]
+        if ch >= 0:
+            gains += ch
+        else:
+            losses -= ch
+    avg_g = gains / period
+    avg_l = losses / period
+    if avg_l == 0:
+        return 100.0
+    rs = avg_g / avg_l
+    return 100 - (100 / (1 + rs))
+
+
+def calc_bollinger(closes, period=20, mult=2.0):
+    """볼린저밴드 상/하단 + 현재가 위치. (upper, lower, pos) pos: 'over'/'under'/'in'/None."""
+    if len(closes) < period:
+        return None, None, None
+    window = closes[-period:]
+    mean = sum(window) / period
+    var = sum((x - mean) ** 2 for x in window) / period
+    std = var ** 0.5
+    upper = mean + mult * std
+    lower = mean - mult * std
+    now = closes[-1]
+    if now > upper:
+        pos = "over"   # 상단 돌파
+    elif now < lower:
+        pos = "under"  # 하단 돌파
+    else:
+        pos = "in"
+    return upper, lower, pos
+
+
+@st.cache_data(ttl=600, max_entries=60)
+def get_indicators(ticker):
+    """RSI + 볼린저 위치. 1회 호출로 계산."""
+    closes = get_closes(ticker)
+    if not closes:
+        return {"rsi": None, "boll": None}
+    return {"rsi": calc_rsi(closes), "boll": calc_bollinger(closes)[2]}
+
+
 def crypto_symbol(ticker):
     t = ticker.upper().replace("BINANCE:", "").strip()
     if t in CRYPTO_ALIASES:
@@ -550,8 +661,13 @@ def compute_account(holdings, cur_fx):
             h52 = get_52w_high(tk)
         except Exception:
             h52 = None
+        try:
+            ind = get_indicators(tk)
+        except Exception:
+            ind = {"rsi": None, "boll": None}
         rows.append({**h, "price": price, "buy_amt": buy_amt, "eval_amt": eval_amt,
-                     "usd": usd, "buy_fx": buy_fx, "high52": h52})
+                     "usd": usd, "buy_fx": buy_fx, "high52": h52,
+                     "rsi": ind.get("rsi"), "boll": ind.get("boll")})
     return {
         "rows": rows,
         "total_buy_krw": usd_buy_krw + krw_buy,
@@ -708,18 +824,17 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 신호: 목표비중 ±7% 상대 밴드 → 매수/매도 금액 표시
+        # 신호: 목표비중과 1%p 이상 벌어지면 매수/매도 금액 (내가 판단)
         if tgt_w == 0:
             sig_html = '<span style="color:#666;font-size:13px;">-</span>'
         else:
             tgt_amt = tgt_w / 100 * total_eval
             diff = abs(tgt_amt - r["eval_amt"])
-            upper = tgt_w * 1.10
-            lower = tgt_w * 0.90
-            if cur_w < lower:
+            gap = cur_w - tgt_w
+            if gap < -1.0:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#ff4d4d;">매수</div>'
                             f'<div style="font-size:12px;color:#ff4d4d;">{fmt_won(diff)}</div>')
-            elif cur_w > upper:
+            elif gap > 1.0:
                 sig_html = (f'<div style="font-size:14px;font-weight:800;color:#4d94ff;">매도</div>'
                             f'<div style="font-size:12px;color:#4d94ff;">{fmt_won(diff)}</div>')
             else:
@@ -737,6 +852,23 @@ def render_holdings(acct, data, cur_fx, show_krw):
         else:
             dd_html = ""
 
+        # RSI: 70↑ 빨강, 30↓ 파랑, 중간 회색
+        rsi = r.get("rsi")
+        if rsi is not None:
+            rc = "#ff4d4d" if rsi >= 70 else "#4d94ff" if rsi <= 30 else "#aaa"
+            rsi_html = f'<div style="font-size:11px;font-weight:700;color:{rc};margin-top:3px;white-space:nowrap;">RSI {rsi:.0f}</div>'
+        else:
+            rsi_html = ""
+
+        # 볼린저: 상단돌파(매도)/하단돌파(매수)
+        boll = r.get("boll")
+        if boll == "over":
+            boll_html = '<div style="font-size:10px;font-weight:700;color:#4d94ff;margin-top:3px;white-space:nowrap;">볼린저 상단↑</div>'
+        elif boll == "under":
+            boll_html = '<div style="font-size:10px;font-weight:700;color:#ff4d4d;margin-top:3px;white-space:nowrap;">볼린저 하단↓</div>'
+        else:
+            boll_html = ""
+
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:11px 10px;margin-bottom:6px;">'
             f'<div style="display:grid;grid-template-columns:1.05fr 1.75fr 0.65fr 0.75fr;gap:0;align-items:center;">'
@@ -746,10 +878,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'{dd_html}</div>'
             f'<div style="text-align:right;padding:2px 8px;min-width:0;overflow:hidden;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:15px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            f'<div style="font-size:11px;font-weight:700;color:{pc};margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div>'
+            f'{rsi_html}</div>'
             f'<div style="text-align:center;padding:2px 4px;overflow:hidden;border-left:1px solid #3a3a3a;">'
             f'<div style="font-size:13px;font-weight:800;color:#fff;">{tgt_w:.0f}%</div>'
-            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div></div>'
+            f'<div style="font-size:13px;font-weight:800;color:{cw_color};margin-top:4px;">{cur_w:.0f}%</div>'
+            f'{boll_html}</div>'
             f'<div style="text-align:right;padding:2px 2px 2px 6px;overflow:hidden;border-left:1px solid #3a3a3a;">{sig_html}</div>'
             f'</div></div>',
             unsafe_allow_html=True)
