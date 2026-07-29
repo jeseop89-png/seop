@@ -853,10 +853,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
     st.markdown(
-        '<div style="display:flex;padding:2px 14px 6px;font-size:10px;color:#777;">'
-        '<div style="flex:1.3;">종목 / 수량</div>'
-        '<div style="flex:1.4;text-align:right;">평가금 / 손익</div>'
-        '<div style="flex:0.9;text-align:right;">목표→현재 / 신호</div>'
+        '<div style="display:grid;grid-template-columns:1.15fr 1fr 1.3fr 0.85fr;gap:0;'
+        'padding:2px 14px 6px;font-size:10px;color:#777;">'
+        '<div>종목 / 수량</div>'
+        '<div style="text-align:right;">매입가 / 현재가</div>'
+        '<div style="text-align:right;">평가금 / 수익률</div>'
+        '<div style="text-align:right;">목표/현재</div>'
         '</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(rows):
@@ -875,66 +877,74 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
-        # 신호: 목표비중과 1%p 이상 벌어지면 매수/매도 금액 (내가 판단)
-        if tgt_w == 0:
-            sig_html = '<span style="color:#666;font-size:12px;">-</span>'
-        else:
-            tgt_amt = tgt_w / 100 * total_eval
-            diff = abs(tgt_amt - r["eval_amt"])
-            gap = cur_w - tgt_w
-            if gap < -1.0:
-                sig_html = (f'<span style="font-size:13px;font-weight:800;color:#ff4d4d;">매수</span> '
-                            f'<span style="font-size:11px;color:#ff4d4d;">{fmt_won(diff)}</span>')
-            elif gap > 1.0:
-                sig_html = (f'<span style="font-size:13px;font-weight:800;color:#4d94ff;">매도</span> '
-                            f'<span style="font-size:11px;color:#4d94ff;">{fmt_won(diff)}</span>')
-            else:
-                sig_html = '<span style="font-size:12px;font-weight:700;color:#888;">적정</span>'
-
         name_size = 15 if len(r["name"]) <= 10 else 13 if len(r["name"]) <= 16 else 11
-
-        # 하단 정보 스트립 (현재가·평단·RSI·고점) - 전체폭 가로 나열
-        avg_p = r.get("avg_price", 0)
         price_now = r.get("price")
-        if usd:
-            cur_p_str = fmt_usd(price_now) if price_now else "-"
-            avg_p_str = fmt_usd(avg_p)
-        else:
-            cur_p_str = f"{price_now:,.0f}" if price_now else "-"
-            avg_p_str = f"{avg_p:,.0f}"
+        avg_p = r.get("avg_price", 0)
 
-        info_parts = [f'현재 <b style="color:#ddd;">{cur_p_str}</b>',
-                      f'평단 <b style="color:#ddd;">{avg_p_str}</b>']
-        rsi = r.get("rsi")
-        if rsi is not None:
-            rc = "#ff4d4d" if rsi >= 70 else "#4d94ff" if rsi <= 30 else "#aaa"
-            info_parts.append(f'RSI <b style="color:{rc};">{rsi:.0f}</b>')
+        # 매입가/현재가 표기 (통화)
+        if usd:
+            avgp_str = fmt_usd(avg_p)
+            curp_str = fmt_usd(price_now) if price_now else "-"
+        else:
+            avgp_str = f"{avg_p:,.0f}"
+            curp_str = f"{price_now:,.0f}" if price_now else "-"
+
+        # 52주 고점대비 하락률
         h52 = r.get("high52")
+        dd = None
         if h52 and price_now and h52 > 0:
             dd = (price_now - h52) / h52 * 100
-            info_parts.append(f'고점 <b style="color:#4d94ff;">{dd:.1f}%</b>')
-        info_strip = ('<div style="font-size:11px;color:#888;margin-top:8px;padding-top:7px;'
-                      'border-top:1px solid #222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-                      + '　·　'.join(info_parts) + '</div>')
+        dd_html = (f'<div style="font-size:10px;color:#4d94ff;margin-top:3px;white-space:nowrap;">고점대비 {dd:.1f}%</div>'
+                   if dd is not None else '')
+
+        # ===== 하단 4칸 트리거 신호 (조건 충족 시만) =====
+        # 1: 고점-30%  2: 고점-40%  3: 평단+30%  4: 평단+40%
+        def trig_cell(active, label, color):
+            if active:
+                return (f'<div style="flex:1;text-align:center;padding:4px 2px;background:{color}22;'
+                        f'border:1px solid {color}66;border-radius:6px;margin:0 2px;">'
+                        f'<div style="font-size:11px;font-weight:800;color:{color};">{label}</div></div>')
+            return ('<div style="flex:1;text-align:center;padding:4px 2px;margin:0 2px;">'
+                    '<div style="font-size:11px;color:#333;">·</div></div>')
+
+        profit_from_avg = ((price_now - avg_p) / avg_p * 100) if (price_now and avg_p) else None
+        t1 = dd is not None and dd <= -30
+        t2 = dd is not None and dd <= -40
+        t3 = profit_from_avg is not None and profit_from_avg >= 30
+        t4 = profit_from_avg is not None and profit_from_avg >= 40
+        triggers = (t1 or t2 or t3 or t4)
+        trig_row = ""
+        if triggers:
+            trig_row = (
+                '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
+                + trig_cell(t1, "고점 -30% 매수", "#ff4d4d")
+                + trig_cell(t2, "고점 -40% 매수", "#ff4d4d")
+                + trig_cell(t3, "평단 +30% 익절", "#4d94ff")
+                + trig_cell(t4, "평단 +40% 익절", "#4d94ff")
+                + '</div>')
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:7px;">'
-            # 상단: 종목명·수량 / 평가금·수익 / 목표현재·신호
-            f'<div style="display:flex;align-items:flex-start;gap:8px;">'
-            # 왼쪽: 종목명 + 수량
-            f'<div style="flex:1.3;min-width:0;overflow:hidden;">'
+            # 상단: 4칸 표
+            f'<div style="display:grid;grid-template-columns:1.15fr 1fr 1.3fr 0.85fr;gap:0;align-items:start;">'
+            # 1칸: 종목 / 수량
+            f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:4px;">{r["qty"]:,.0f}주</div></div>'
-            # 가운데: 평가금 + 수익금(%)
-            f'<div style="flex:1.4;min-width:0;text-align:right;overflow:hidden;">'
-            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
-            # 오른쪽: 목표/현재 + 신호
-            f'<div style="flex:0.9;min-width:0;text-align:right;overflow:hidden;">'
-            f'<div style="font-size:13px;font-weight:700;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:#666;">→</span> <span style="color:{cw_color};">{cur_w:.0f}%</span></div>'
-            f'<div style="margin-top:4px;">{sig_html}</div></div>'
+            f'<div style="font-size:12px;font-weight:600;color:#aaa;margin-top:5px;">{r["qty"]:,.0f}주</div></div>'
+            # 2칸: 매입가 / 현재가
+            f'<div style="text-align:right;padding:0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
+            f'<div style="font-size:13px;font-weight:700;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{avgp_str}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}</div></div>'
+            # 3칸: 평가금 / 수익률
+            f'<div style="text-align:right;padding:0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:13px;font-weight:800;color:{pc};margin-top:5px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
+            # 4칸: 목표/현재 + 고점대비
+            f'<div style="text-align:right;padding:0 0 0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
+            f'<div style="font-size:13px;font-weight:800;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}</span><span style="color:#666;">/</span><span style="color:{cw_color};">{cur_w:.0f}%</span></div>'
+            f'{dd_html}</div>'
             f'</div>'
-            f'{info_strip}'
+            f'{trig_row}'
             f'</div>',
             unsafe_allow_html=True)
 
