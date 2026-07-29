@@ -894,7 +894,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
         dd = None
         if h52 and price_now and h52 > 0:
             dd = (price_now - h52) / h52 * 100
-        dd_html = (f'<div style="font-size:10px;color:#4d94ff;margin-top:3px;white-space:nowrap;">고점대비 {dd:.1f}%</div>'
+        dd_html = (f'<div style="font-size:10px;color:#4d94ff;margin-top:3px;white-space:nowrap;">하락 {dd:.1f}%</div>'
                    if dd is not None else '')
 
         # ===== 하단 4칸 트리거 신호 (조건 충족 시만) =====
@@ -917,10 +917,10 @@ def render_holdings(acct, data, cur_fx, show_krw):
         if triggers:
             trig_row = (
                 '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
-                + trig_cell(t1, "고점 -30% 매수", "#ff4d4d")
-                + trig_cell(t2, "고점 -40% 매수", "#ff4d4d")
-                + trig_cell(t3, "평단 +30% 익절", "#4d94ff")
-                + trig_cell(t4, "평단 +40% 익절", "#4d94ff")
+                + trig_cell(t1, "-30% 매수", "#ff4d4d")
+                + trig_cell(t2, "-40% 매수", "#ff4d4d")
+                + trig_cell(t3, "+30% 익절", "#4d94ff")
+                + trig_cell(t4, "+40% 익절", "#4d94ff")
                 + '</div>')
 
         st.markdown(
@@ -938,7 +938,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
             # 3칸: 평가금 / 수익률
             f'<div style="text-align:right;padding:0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
             f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:13px;font-weight:800;color:{pc};margin-top:5px;white-space:nowrap;">{pa}{abs(profit_pct):.2f}%</div></div>'
+            f'<div style="font-size:11px;font-weight:800;color:{pc};margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
             # 4칸: 목표/현재 + 고점대비
             f'<div style="text-align:right;padding:0 0 0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
             f'<div style="font-size:13px;font-weight:800;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}</span><span style="color:#666;">/</span><span style="color:{cw_color};">{cur_w:.0f}%</span></div>'
