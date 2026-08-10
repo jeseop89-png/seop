@@ -905,8 +905,10 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         t_30 = dd is not None and dd <= -30
         t_50 = dd is not None and dd <= -50
-        t_avg = bool(price_now and avg_p and price_now <= avg_p)   # 현재가가 평단 이하로 하락
-        t_high = bool(dd is not None and price_now and dd >= -2)   # 52주 최고가 근처(-2% 이내)
+        # 평단 도달: 현재가가 평단 근처(±2%)에 왔을 때만 (한참 밑이면 이미 지난 것)
+        t_avg = bool(price_now and avg_p and avg_p * 0.98 <= price_now <= avg_p * 1.02)
+        # 52주 최고가 도달: 현재가가 고점 -2% 이내
+        t_high = bool(dd is not None and price_now and dd >= -2)
 
         cond_row = (
             '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
@@ -928,9 +930,9 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:13px;font-weight:700;margin-top:6px;white-space:nowrap;">목표 <span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:{cw_color};">({cur_w:.0f}%)</span></div></div>'
             # 오른쪽: 현재가 / 평단가 / 평가금(수익률)
             f'<div style="flex:1;min-width:0;text-align:right;overflow:hidden;">'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {curp_str}</div>'
-            f'<div style="font-size:13px;font-weight:600;color:#999;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avgp_str}</div>'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])} <span style="font-size:12px;color:{pc};">({pa}{abs(profit_pct):.1f}%)</span></div></div>'
+            f'<div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {curp_str}</div>'
+            f'<div style="font-size:14px;font-weight:700;color:#fff;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avgp_str}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:{pc};margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])} ({pa}{abs(profit_pct):.1f}%)</div></div>'
             f'</div>'
             f'{cond_row}'
             f'</div>',
