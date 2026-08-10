@@ -905,8 +905,8 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         t_30 = dd is not None and dd <= -30
         t_50 = dd is not None and dd <= -50
-        t_avg = bool(price_now and avg_p and price_now <= avg_p * 1.02)  # 현재가가 평단까지 하락
-        t_high = dd is not None and dd >= -2                             # 52주 최고가 근처
+        t_avg = bool(price_now and avg_p and price_now <= avg_p)   # 현재가가 평단 이하로 하락
+        t_high = bool(dd is not None and price_now and dd >= -2)   # 52주 최고가 근처(-2% 이내)
 
         cond_row = (
             '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
@@ -928,7 +928,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:13px;font-weight:700;margin-top:6px;white-space:nowrap;">목표 <span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:{cw_color};">({cur_w:.0f}%)</span></div></div>'
             # 오른쪽: 현재가 / 평단가 / 평가금(수익률)
             f'<div style="flex:1;min-width:0;text-align:right;overflow:hidden;">'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {curp_str}</div>'
             f'<div style="font-size:13px;font-weight:600;color:#999;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avgp_str}</div>'
             f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])} <span style="font-size:12px;color:{pc};">({pa}{abs(profit_pct):.1f}%)</span></div></div>'
             f'</div>'
@@ -1062,20 +1062,16 @@ else:
                           key=f"cur_{nm}", label_visibility="collapsed")
             show_krw = (cm == "₩ 원화")
 
-        # 계좌 요약 (총평가금 + 수익률)
-        if buy_krw > 0:
-            fx_html = ""
-            if d["has_usd"]:
-                ub = d.get("usd_buy", 0)
-                avg_fx = (d["usd_buy_krw"] / ub) if ub and d.get("usd_buy_krw") else cur_fx
-                fx_pct = ((cur_fx - avg_fx) / avg_fx * 100) if avg_fx else 0
-                fxc = "#ff4d4d" if fx_pct >= 0 else "#4d94ff"
-                fxa = "▲" if fx_pct >= 0 else "▼"
-                fx_html = (f'<div style="font-size:12px;color:#888;margin-top:5px;">'
-                           f'매수환율 <b style="color:#ccc;">{avg_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b> '
-                           f'<b style="color:{fxc};">({fxa}{abs(fx_pct):.2f}%)</b></div>')
-            st.markdown('<div style="padding:2px 2px 4px;">' + summary_block(eval_krw, buy_krw, big=False)
-                        + fx_html + '</div>', unsafe_allow_html=True)
+        # 계좌별 총합산은 제거 (맨 위 전체금액만). 해외계좌는 환율정보만 표시
+        if buy_krw > 0 and d["has_usd"]:
+            ub = d.get("usd_buy", 0)
+            avg_fx = (d["usd_buy_krw"] / ub) if ub and d.get("usd_buy_krw") else cur_fx
+            fx_pct = ((cur_fx - avg_fx) / avg_fx * 100) if avg_fx else 0
+            fxc = "#ff4d4d" if fx_pct >= 0 else "#4d94ff"
+            fxa = "▲" if fx_pct >= 0 else "▼"
+            st.markdown(f'<div style="font-size:12px;color:#888;padding:2px 2px 6px;">'
+                        f'매수환율 <b style="color:#ccc;">{avg_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b> '
+                        f'<b style="color:{fxc};">({fxa}{abs(fx_pct):.2f}%)</b></div>', unsafe_allow_html=True)
 
         if holdings:
             render_holdings(nm, d, cur_fx, show_krw)
