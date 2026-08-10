@@ -852,15 +852,6 @@ def render_holdings(acct, data, cur_fx, show_krw):
     rows = data["rows"]
     total_eval = sum(r["eval_amt"] for r in rows) or 1
 
-    st.markdown(
-        '<div style="display:grid;grid-template-columns:1.15fr 1fr 1.3fr 0.85fr;gap:0;'
-        'padding:2px 14px 6px;font-size:10px;color:#777;">'
-        '<div>종목 / 수량</div>'
-        '<div style="text-align:right;">매입가 / 현재가</div>'
-        '<div style="text-align:right;">평가금 / 수익률</div>'
-        '<div style="text-align:right;">목표/현재</div>'
-        '</div>', unsafe_allow_html=True)
-
     for i, r in enumerate(rows):
         usd = r["usd"]
         profit = r["eval_amt"] - r["buy_amt"]
@@ -894,57 +885,54 @@ def render_holdings(acct, data, cur_fx, show_krw):
         dd = None
         if h52 and price_now and h52 > 0:
             dd = (price_now - h52) / h52 * 100
-        dd_html = (f'<div style="font-size:10px;color:#4d94ff;margin-top:3px;white-space:nowrap;">하락 {dd:.1f}%</div>'
-                   if dd is not None else '')
 
-        # ===== 하단 4칸 트리거 신호 (조건 충족 시만) =====
-        # 1: 고점-30%  2: 고점-40%  3: 평단+30%  4: 평단+40%
-        def trig_cell(active, label, color):
-            if active:
-                return (f'<div style="flex:1;text-align:center;padding:4px 2px;background:{color}22;'
-                        f'border:1px solid {color}66;border-radius:6px;margin:0 2px;">'
-                        f'<div style="font-size:11px;font-weight:800;color:{color};">{label}</div></div>')
-            return ('<div style="flex:1;text-align:center;padding:4px 2px;margin:0 2px;">'
-                    '<div style="font-size:11px;color:#333;">·</div></div>')
-
+        # ===== 하단 조건 신호: [52주하락률] [-30%매수] [-50%매수] [평단 현금50%] [고점 현금50%] =====
         profit_from_avg = ((price_now - avg_p) / avg_p * 100) if (price_now and avg_p) else None
-        t1 = dd is not None and dd <= -30
-        t2 = dd is not None and dd <= -40
-        t3 = profit_from_avg is not None and profit_from_avg >= 30
-        t4 = profit_from_avg is not None and profit_from_avg >= 40
-        triggers = (t1 or t2 or t3 or t4)
-        trig_row = ""
-        if triggers:
-            trig_row = (
-                '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
-                + trig_cell(t1, "-30% 매수", "#ff4d4d")
-                + trig_cell(t2, "-40% 매수", "#ff4d4d")
-                + trig_cell(t3, "+30% 익절", "#4d94ff")
-                + trig_cell(t4, "+40% 익절", "#4d94ff")
-                + '</div>')
+
+        def sig_box(active, label, color):
+            if active:
+                return (f'<div style="flex:1;text-align:center;padding:5px 2px;background:{color}22;'
+                        f'border:1px solid {color}66;border-radius:6px;margin:0 2px;">'
+                        f'<div style="font-size:9px;font-weight:800;color:{color};white-space:nowrap;">{label}</div></div>')
+            return ('<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
+                    '<div style="font-size:9px;color:#333;">·</div></div>')
+
+        dd_cell = ('<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
+                   f'<div style="font-size:10px;font-weight:700;color:#4d94ff;white-space:nowrap;">52주 {dd:.0f}%</div></div>'
+                   if dd is not None else
+                   '<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
+                   '<div style="font-size:10px;color:#555;">52주 -</div></div>')
+
+        t_30 = dd is not None and dd <= -30
+        t_50 = dd is not None and dd <= -50
+        t_avg = bool(price_now and avg_p and price_now <= avg_p * 1.02)  # 현재가가 평단까지 하락
+        t_high = dd is not None and dd >= -2                             # 52주 최고가 근처
+
+        cond_row = (
+            '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
+            + dd_cell
+            + sig_box(t_30, "-30% 매수", "#ff4d4d")
+            + sig_box(t_50, "-50% 매수", "#ff4d4d")
+            + sig_box(t_avg, "평단 현금50%", "#ffa64d")
+            + sig_box(t_high, "고점 현금50%", "#4dff88")
+            + '</div>')
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:7px;">'
-            # 상단: 4칸 표
-            f'<div style="display:grid;grid-template-columns:1.15fr 1fr 1.3fr 0.85fr;gap:0;align-items:start;">'
-            # 1칸: 종목 / 수량
-            f'<div style="padding-right:6px;overflow:hidden;min-width:0;">'
+            # 상단 2칸 (각 3줄)
+            f'<div style="display:flex;align-items:flex-start;gap:10px;">'
+            # 왼쪽: 종목 / 수량 / 목표(현재)
+            f'<div style="flex:1;min-width:0;overflow:hidden;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:12px;font-weight:600;color:#aaa;margin-top:5px;">{r["qty"]:,.0f}주</div></div>'
-            # 2칸: 매입가 / 현재가
-            f'<div style="text-align:right;padding:0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
-            f'<div style="font-size:13px;font-weight:700;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{avgp_str}</div>'
-            f'<div style="font-size:13px;font-weight:800;color:#fff;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}</div></div>'
-            # 3칸: 평가금 / 수익률
-            f'<div style="text-align:right;padding:0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
-            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:11px;font-weight:800;color:{pc};margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
-            # 4칸: 목표/현재 + 고점대비
-            f'<div style="text-align:right;padding:0 0 0 8px;overflow:hidden;min-width:0;border-left:1px solid #2a2a2a;">'
-            f'<div style="font-size:13px;font-weight:800;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}</span><span style="color:#666;">/</span><span style="color:{cw_color};">{cur_w:.0f}%</span></div>'
-            f'{dd_html}</div>'
+            f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:6px;">{r["qty"]:,.0f}주</div>'
+            f'<div style="font-size:13px;font-weight:700;margin-top:6px;white-space:nowrap;">목표 <span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:{cw_color};">({cur_w:.0f}%)</span></div></div>'
+            # 오른쪽: 현재가 / 평단가 / 평가금(수익률)
+            f'<div style="flex:1;min-width:0;text-align:right;overflow:hidden;">'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}</div>'
+            f'<div style="font-size:13px;font-weight:600;color:#999;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avgp_str}</div>'
+            f'<div style="font-size:14px;font-weight:800;color:#fff;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])} <span style="font-size:12px;color:{pc};">({pa}{abs(profit_pct):.1f}%)</span></div></div>'
             f'</div>'
-            f'{trig_row}'
+            f'{cond_row}'
             f'</div>',
             unsafe_allow_html=True)
 
