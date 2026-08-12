@@ -899,39 +899,6 @@ def render_holdings(acct, data, cur_fx, show_krw):
         if h52 and price_now and h52 > 0:
             dd = (price_now - h52) / h52 * 100
 
-        # ===== 하단 조건 신호: [52주하락률] [-30%매수] [-50%매수] [평단 현금50%] [고점 현금50%] =====
-        profit_from_avg = ((price_now - avg_p) / avg_p * 100) if (price_now and avg_p) else None
-
-        def sig_box(active, label, color):
-            if active:
-                return (f'<div style="flex:1;text-align:center;padding:5px 2px;background:{color}22;'
-                        f'border:1px solid {color}66;border-radius:6px;margin:0 2px;">'
-                        f'<div style="font-size:9px;font-weight:800;color:{color};white-space:nowrap;">{label}</div></div>')
-            return ('<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
-                    '<div style="font-size:9px;color:#333;">·</div></div>')
-
-        dd_cell = ('<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
-                   f'<div style="font-size:10px;font-weight:700;color:#4d94ff;white-space:nowrap;">52주 {dd:.0f}%</div></div>'
-                   if dd is not None else
-                   '<div style="flex:1;text-align:center;padding:5px 2px;margin:0 2px;">'
-                   '<div style="font-size:10px;color:#555;">52주 -</div></div>')
-
-        t_30 = dd is not None and dd <= -30
-        t_50 = dd is not None and dd <= -50
-        # 평단 도달: 현재가가 평단 근처(±2%)에 왔을 때만 (한참 밑이면 이미 지난 것)
-        t_avg = bool(price_now and avg_p and avg_p * 0.98 <= price_now <= avg_p * 1.02)
-        # 52주 최고가 도달: 현재가가 고점 -2% 이내
-        t_high = bool(dd is not None and price_now and dd >= -2)
-
-        cond_row = (
-            '<div style="display:flex;margin-top:8px;padding-top:8px;border-top:1px solid #222;">'
-            + dd_cell
-            + sig_box(t_30, "-30% 매수", "#ff4d4d")
-            + sig_box(t_50, "-50% 매수", "#ff4d4d")
-            + sig_box(t_avg, "평단 현금50%", "#ffa64d")
-            + sig_box(t_high, "고점 현금50%", "#4dff88")
-            + '</div>')
-
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:7px;">'
             # 1행: 종목명·수량 / 평가금·손익
@@ -960,7 +927,6 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:9px;color:#777;">현재/평단</div>'
             f'<div style="font-size:12px;font-weight:700;color:#fff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}<span style="color:#666;"> / </span><span style="color:#999;">{avgp_str}</span></div></div>'
             f'</div>'
-            f'{cond_row}'
             f'</div>',
             unsafe_allow_html=True)
 
