@@ -922,13 +922,19 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:9px;color:#777;">목표/현재</div>'
             f'<div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}</span><span style="color:#666;">/</span><span style="color:{cw_color};">{cur_w:.0f}%</span></div></div>'
             f'<div style="width:1px;height:26px;background:#2a2a2a;"></div>'
-            # 현재가/평단가
+            # 현재가/평단가 (현재가: 평단보다 낮으면 파랑, 높으면 빨강)
             f'<div style="flex:1.3;min-width:0;text-align:center;overflow:hidden;">'
             f'<div style="font-size:9px;color:#777;">현재/평단</div>'
-            f'<div style="font-size:12px;font-weight:700;color:#fff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}<span style="color:#666;"> / </span><span style="color:#999;">{avgp_str}</span></div></div>'
+            f'<div style="font-size:12px;font-weight:700;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><span style="color:{"#ff4d4d" if (price_now and avg_p and price_now >= avg_p) else "#4d94ff" if (price_now and avg_p) else "#fff"};">{curp_str}</span><span style="color:#666;"> / </span><span style="color:#999;">{avgp_str}</span></div></div>'
             f'</div>'
             f'</div>',
             unsafe_allow_html=True)
+
+        # 종목 편집 버튼 (작게)
+        if "_acct" in r and "_idx" in r:
+            if st.button("수정", key=f"edit_{r['_acct']}_{r['_idx']}_{i}"):
+                st.session_state["_open_edit"] = (r["_acct"], r["_idx"])
+                st.rerun()
 
 
 def summary_block(eval_krw, buy_krw, big=True):
@@ -945,6 +951,14 @@ def summary_block(eval_krw, buy_krw, big=True):
 if "portfolios" not in st.session_state:
     st.session_state.portfolios = load_portfolios()
 
+# 계좌 구분 없이 전체 통합 - 새 종목은 이 기본 계좌에 쌓임
+_DEFAULT_ACCT = "전체"
+if not st.session_state.portfolios:
+    st.session_state.portfolios = {_DEFAULT_ACCT: []}
+elif _DEFAULT_ACCT not in st.session_state.portfolios:
+    # 기존 계좌 중 첫 번째를 기본으로 사용 (데이터 유지)
+    _DEFAULT_ACCT = list(st.session_state.portfolios.keys())[0]
+
 # 후속 다이얼로그
 _pa = st.session_state.pop("_open_add", None)
 if _pa:
@@ -956,21 +970,16 @@ _pe = st.session_state.pop("_open_edit", None)
 if _pe:
     edit_stock_dialog(_pe[0], _pe[1])
 
-_top = st.columns([2.2, 1, 1])
+_top = st.columns([3, 1])
 with _top[0]:
     _total_ph = st.empty()
 with _top[1]:
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-    if st.button("＋ 생성", key="create_acct"):
-        create_account_dialog()
-with _top[2]:
-    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-    if st.button("📊 비중", key="toggle_donut"):
-        st.session_state["_show_donut"] = not st.session_state.get("_show_donut", False)
-        st.rerun()
+    if st.button("＋ 종목", key="add_asset"):
+        add_stock_dialog(_DEFAULT_ACCT)
 
 if not st.session_state.portfolios:
-    st.info("계좌가 없습니다. '＋ 생성'으로 만들어보세요.")
+    st.info("종목이 없습니다. '＋ 종목'으로 추가해보세요.")
 else:
     cur_fx = get_usd_krw()
     names = list(st.session_state.portfolios.keys())
@@ -1031,8 +1040,8 @@ else:
                 f'<div style="height:100%;width:{bar_pct:.0f}%;background:{gc};"></div></div>'
                 f'</div>', unsafe_allow_html=True)
 
-    # 비중(도넛) 토글 - 버튼
-    if st.session_state.get("_show_donut"):
+    # 비중(도넛) - 항상 표시
+    if True:
         items = []
         for nm in names:
             for rr in acct_data[nm]["rows"]:
@@ -1077,43 +1086,27 @@ else:
                 f'<div style="line-height:1.7;margin-bottom:8px;">{legend}</div>',
                 unsafe_allow_html=True)
 
-    st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>계좌 목록</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>보유 종목</div>", unsafe_allow_html=True)
 
+    # 전체 계좌의 종목/계산결과를 하나로 합침 (계좌 구분 없이)
+    all_rows = []
+    any_usd = False
     for nm in names:
-        d = acct_data[nm]
-        holdings = st.session_state.portfolios[nm]
-        buy_krw, eval_krw = d["total_buy_krw"], d["total_eval_krw"]
+        for idx, rr in enumerate(acct_data[nm]["rows"]):
+            rr["_acct"] = nm
+            rr["_idx"] = idx
+            all_rows.append(rr)
+            if rr["usd"]:
+                any_usd = True
 
-        # 계좌명 + 관리(+)
-        hc = st.columns([4, 1])
-        with hc[0]:
-            st.markdown(f'<div style="padding-top:4px;font-size:16px;font-weight:800;color:#fff;">{nm} '
-                        f'<span style="font-size:11px;color:#888;">({len(holdings)})</span></div>',
-                        unsafe_allow_html=True)
-        with hc[1]:
-            if st.button("＋", key=f"mng_{nm}", help="종목 관리"):
-                manage_dialog(nm)
+    # 통화 토글 (해외 종목 있을 때만) - 기본 원화
+    show_krw = True
+    if any_usd:
+        cm = st.radio("통화", ["₩ 원화", "$ 달러"], horizontal=True,
+                      key="cur_all", label_visibility="collapsed")
+        show_krw = (cm == "₩ 원화")
 
-        # 통화 토글 (해외) - 기본 원화, 달러는 눌러야
-        show_krw = True
-        if d["has_usd"]:
-            cm = st.radio("통화", ["₩ 원화", "$ 달러"], horizontal=True,
-                          key=f"cur_{nm}", label_visibility="collapsed")
-            show_krw = (cm == "₩ 원화")
+    # 통합 데이터로 종목 렌더
+    merged = {"rows": all_rows}
+    render_holdings(_DEFAULT_ACCT, merged, cur_fx, show_krw)
 
-        # 계좌별 총합산은 제거 (맨 위 전체금액만). 해외계좌는 환율정보만 표시
-        if buy_krw > 0 and d["has_usd"]:
-            ub = d.get("usd_buy", 0)
-            avg_fx = (d["usd_buy_krw"] / ub) if ub and d.get("usd_buy_krw") else cur_fx
-            fx_pct = ((cur_fx - avg_fx) / avg_fx * 100) if avg_fx else 0
-            fxc = "#ff4d4d" if fx_pct >= 0 else "#4d94ff"
-            fxa = "▲" if fx_pct >= 0 else "▼"
-            st.markdown(f'<div style="font-size:12px;color:#888;padding:2px 2px 6px;">'
-                        f'매수환율 <b style="color:#ccc;">{avg_fx:,.0f}</b> → 현재 <b style="color:#ccc;">{cur_fx:,.0f}</b> '
-                        f'<b style="color:{fxc};">({fxa}{abs(fx_pct):.2f}%)</b></div>', unsafe_allow_html=True)
-
-        if holdings:
-            render_holdings(nm, d, cur_fx, show_krw)
-
-        st.markdown("<div style='height:8px;border-bottom:1px solid #2a2a2a;margin-bottom:12px;'></div>",
-                    unsafe_allow_html=True)
