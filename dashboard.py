@@ -748,9 +748,16 @@ def add_stock_dialog(acct):
     st.caption("미국: AAPL, QLD / 국내: 005930.KS / 코인: BTC")
     ticker = st.text_input("티커").strip().upper()
     name = st.text_input("종목명 (표시용)")
+    # 기존 그룹 목록에서 고르거나 새로 입력
+    existing_groups = sorted({h.get("group", "") for accs in st.session_state.portfolios.values()
+                              for h in accs if h.get("group")})
+    group = st.text_input("그룹 (자산군, 예: 나스닥레버리지)",
+                          help="같은 그룹끼리 전체 비중이 합산됩니다")
+    if existing_groups:
+        st.caption("기존 그룹: " + " · ".join(existing_groups))
     qty = st.number_input("수량", min_value=0.0, step=1.0)
     avg = st.number_input("평단가", min_value=0.0, step=0.0001, format="%.4f")
-    target = st.number_input("목표 비중 (%)", min_value=0.0, max_value=100.0, step=1.0)
+    target = st.number_input("목표 비중 (%, 전체 대비)", min_value=0.0, max_value=100.0, step=1.0)
     fx = 0.0
     if ticker and not is_korean(ticker):
         fx = st.number_input("매수 환율 (원/달러, 모르면 0)", min_value=0.0, step=1.0)
@@ -758,7 +765,8 @@ def add_stock_dialog(acct):
         if ticker:
             st.session_state.portfolios[acct].append({
                 "ticker": ticker, "name": name or ticker, "qty": qty,
-                "avg_price": avg, "target_weight": target, "buy_fx_rate": fx})
+                "avg_price": avg, "target_weight": target, "buy_fx_rate": fx,
+                "group": group.strip()})
             save_portfolios()
             st.rerun()
 
@@ -788,9 +796,14 @@ def add_more_dialog(acct, idx):
 def edit_stock_dialog(acct, idx):
     h = st.session_state.portfolios[acct][idx]
     name = st.text_input("종목명", value=h["name"])
+    group = st.text_input("그룹 (자산군)", value=h.get("group", ""))
+    existing_groups = sorted({hh.get("group", "") for accs in st.session_state.portfolios.values()
+                              for hh in accs if hh.get("group")})
+    if existing_groups:
+        st.caption("기존 그룹: " + " · ".join(existing_groups))
     qty = st.number_input("수량", min_value=0.0, step=1.0, value=float(h["qty"]))
     avg = st.number_input("평단가", min_value=0.0, step=0.0001, format="%.4f", value=float(h["avg_price"]))
-    target = st.number_input("목표 비중 (%)", min_value=0.0, max_value=100.0, step=1.0,
+    target = st.number_input("목표 비중 (%, 전체 대비)", min_value=0.0, max_value=100.0, step=1.0,
                              value=float(h.get("target_weight", 0)))
     fx = float(h.get("buy_fx_rate", 0) or 0)
     if not is_korean(h["ticker"]):
@@ -799,7 +812,7 @@ def edit_stock_dialog(acct, idx):
     with c1:
         if st.button("저장", use_container_width=True):
             h.update({"name": name, "qty": qty, "avg_price": avg,
-                      "target_weight": target, "buy_fx_rate": fx})
+                      "target_weight": target, "buy_fx_rate": fx, "group": group.strip()})
             save_portfolios()
             st.rerun()
     with c2:
@@ -921,18 +934,31 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
         st.markdown(
             f'<div style="background:#141414;border:1px solid #262626;border-radius:10px;padding:12px 14px;margin-bottom:7px;">'
-            # 상단 2칸 (각 3줄)
+            # 1행: 종목명·수량 / 평가금·손익
             f'<div style="display:flex;align-items:flex-start;gap:10px;">'
-            # 왼쪽: 종목 / 수량 / 목표(현재)
             f'<div style="flex:1;min-width:0;overflow:hidden;">'
             f'<div style="font-size:{name_size}px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{r["name"]}</div>'
-            f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:6px;">{r["qty"]:,.0f}주</div>'
-            f'<div style="font-size:13px;font-weight:700;margin-top:6px;white-space:nowrap;">목표 <span style="color:#fff;">{tgt_w:.0f}%</span> <span style="color:{cw_color};">({cur_w:.0f}%)</span></div></div>'
-            # 오른쪽: 현재가 / 평단가 / 평가금(수익률)
-            f'<div style="flex:1;min-width:0;text-align:right;overflow:hidden;">'
-            f'<div style="font-size:14px;font-weight:700;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">현재 {curp_str}</div>'
-            f'<div style="font-size:14px;font-weight:700;color:#fff;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">평단 {avgp_str}</div>'
-            f'<div style="font-size:14px;font-weight:800;color:{pc};margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:5px;">{r["qty"]:,.0f}주</div></div>'
+            f'<div style="flex:1.1;min-width:0;text-align:right;overflow:hidden;">'
+            f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
+            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            f'</div>'
+            # 2행: 52주하락률 / 목표·현재 / 현재가·평단가
+            f'<div style="display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid #222;">'
+            # 52주 하락률
+            f'<div style="flex:1;min-width:0;text-align:center;">'
+            f'<div style="font-size:9px;color:#777;">52주대비</div>'
+            f'<div style="font-size:12px;font-weight:800;color:{"#4d94ff" if dd is not None and dd < 0 else "#888"};margin-top:2px;white-space:nowrap;">{f"{dd:.1f}%" if dd is not None else "-"}</div></div>'
+            f'<div style="width:1px;height:26px;background:#2a2a2a;"></div>'
+            # 목표/현재 비중
+            f'<div style="flex:1.1;min-width:0;text-align:center;">'
+            f'<div style="font-size:9px;color:#777;">목표/현재</div>'
+            f'<div style="font-size:12px;font-weight:800;margin-top:2px;white-space:nowrap;"><span style="color:#fff;">{tgt_w:.0f}</span><span style="color:#666;">/</span><span style="color:{cw_color};">{cur_w:.0f}%</span></div></div>'
+            f'<div style="width:1px;height:26px;background:#2a2a2a;"></div>'
+            # 현재가/평단가
+            f'<div style="flex:1.3;min-width:0;text-align:center;overflow:hidden;">'
+            f'<div style="font-size:9px;color:#777;">현재/평단</div>'
+            f'<div style="font-size:12px;font-weight:700;color:#fff;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{curp_str}<span style="color:#666;"> / </span><span style="color:#999;">{avgp_str}</span></div></div>'
             f'</div>'
             f'{cond_row}'
             f'</div>',
@@ -993,6 +1019,51 @@ else:
     if grand_eval > 0:
         _total_ph.markdown('<div style="padding:8px 2px 0;">' + summary_block(grand_eval, grand_buy, big=True) + '</div>',
                            unsafe_allow_html=True)
+
+    # ===== 그룹(자산군)별 비중 요약 - 전체 계좌 합산 =====
+    group_data = {}  # group -> {eval, tgt}
+    for nm in names:
+        for rr in acct_data[nm]["rows"]:
+            g = rr.get("group", "") or "기타"
+            ev = rr["eval_amt"] * (cur_fx if rr["usd"] else 1)
+            tw = rr.get("target_weight", 0) or 0
+            if g not in group_data:
+                group_data[g] = {"eval": 0.0, "tgt": 0.0}
+            group_data[g]["eval"] += ev
+            group_data[g]["tgt"] += tw
+    # 그룹이 하나라도 지정돼 있으면 요약 표시
+    has_groups = any(g != "기타" for g in group_data)
+    if has_groups and grand_eval > 0:
+        st.markdown("<div style='font-size:13px;color:#888;margin:14px 0 6px;'>자산군별 비중 (전체 합산)</div>",
+                    unsafe_allow_html=True)
+        for g in sorted(group_data, key=lambda x: -group_data[x]["eval"]):
+            gd = group_data[g]
+            cur_gw = gd["eval"] / grand_eval * 100
+            tgt_gw = gd["tgt"]
+            gap = cur_gw - tgt_gw
+            gc = "#ff4d4d" if cur_gw > tgt_gw else "#4d94ff" if cur_gw < tgt_gw else "#888"
+            # 리밸런싱 금액 (목표까지)
+            tgt_amt = tgt_gw / 100 * grand_eval
+            diff = tgt_amt - gd["eval"]
+            if abs(gap) < 0.5:
+                sig = '<span style="color:#888;font-size:12px;">적정</span>'
+            elif diff > 0:
+                sig = f'<span style="color:#ff4d4d;font-size:12px;font-weight:700;">매수 {diff:,.0f}원</span>'
+            else:
+                sig = f'<span style="color:#4d94ff;font-size:12px;font-weight:700;">매도 {abs(diff):,.0f}원</span>'
+            # 진행바
+            bar_pct = min(cur_gw / max(tgt_gw, 1) * 100, 100) if tgt_gw else 0
+            st.markdown(
+                f'<div style="background:#141414;border:1px solid #262626;border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<div style="font-size:14px;font-weight:800;color:#fff;">{g}</div>'
+                f'<div>{sig}</div></div>'
+                f'<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px;">'
+                f'<span style="color:#888;">목표 <b style="color:#fff;">{tgt_gw:.0f}%</b> / 현재 <b style="color:{gc};">{cur_gw:.1f}%</b></span>'
+                f'<span style="color:#aaa;">{gd["eval"]:,.0f}원</span></div>'
+                f'<div style="height:5px;background:#2a2a2a;border-radius:3px;margin-top:7px;overflow:hidden;">'
+                f'<div style="height:100%;width:{bar_pct:.0f}%;background:{gc};"></div></div>'
+                f'</div>', unsafe_allow_html=True)
 
     # 비중(도넛) 토글 - 버튼
     if st.session_state.get("_show_donut"):
