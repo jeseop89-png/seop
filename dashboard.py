@@ -822,6 +822,29 @@ def edit_stock_dialog(acct, idx):
             st.rerun()
 
 
+@st.dialog("종목 관리")
+def manage_all_dialog():
+    st.markdown("**전체 종목**")
+    total = sum(len(v) for v in st.session_state.portfolios.values())
+    st.caption(f"{total}개 종목")
+    for acct in list(st.session_state.portfolios.keys()):
+        for i, h in enumerate(st.session_state.portfolios[acct]):
+            grp = h.get("group", "")
+            grp_str = f' · <span style="color:#4dd2ff;">{grp}</span>' if grp else ""
+            st.markdown(f'{h["name"]} <span style="color:#888;font-size:12px;">{h["ticker"]} · {h["qty"]:,.0f}주{grp_str}</span>',
+                        unsafe_allow_html=True)
+            bc = st.columns(2)
+            with bc[0]:
+                if st.button("추가매수", key=f"gm_{acct}_{i}", use_container_width=True):
+                    st.session_state["_open_more"] = (acct, i)
+                    st.rerun()
+            with bc[1]:
+                if st.button("수정·삭제", key=f"ge_{acct}_{i}", use_container_width=True):
+                    st.session_state["_open_edit"] = (acct, i)
+                    st.rerun()
+            st.markdown("<hr style='border-color:#1e1e1e;margin:4px 0;'>", unsafe_allow_html=True)
+
+
 @st.dialog("계좌 관리")
 def manage_dialog(acct):
     holdings = st.session_state.portfolios[acct]
@@ -867,8 +890,20 @@ def render_holdings(acct, data, cur_fx, show_krw):
 
     for i, r in enumerate(rows):
         usd = r["usd"]
-        profit = r["eval_amt"] - r["buy_amt"]
-        profit_pct = (profit / r["buy_amt"] * 100) if r["buy_amt"] else 0
+        buy_fx = r.get("buy_fx", 0) or cur_fx
+        if usd:
+            # 달러 표시: 순수 주가손익 / 원화 표시: 환차손 포함 총손익
+            if show_krw:
+                eval_krw = r["eval_amt"] * cur_fx
+                buy_krw = r["buy_amt"] * buy_fx
+                profit = eval_krw - buy_krw
+                profit_pct = (profit / buy_krw * 100) if buy_krw else 0
+            else:
+                profit = r["eval_amt"] - r["buy_amt"]
+                profit_pct = (profit / r["buy_amt"] * 100) if r["buy_amt"] else 0
+        else:
+            profit = r["eval_amt"] - r["buy_amt"]
+            profit_pct = (profit / r["buy_amt"] * 100) if r["buy_amt"] else 0
         pc = "#ff4d4d" if profit >= 0 else "#4d94ff"
         pa = "▲" if profit >= 0 else "▼"
         cur_w = r["eval_amt"] / total_eval * 100
@@ -878,6 +913,12 @@ def render_holdings(acct, data, cur_fx, show_krw):
             if usd and not show_krw:
                 return fmt_usd(v)
             return fmt_won(v * cur_fx if usd else v)
+
+        def money_profit(v):
+            # profit은 이미 표시통화 단위로 계산됨 (환산 불필요)
+            if usd and not show_krw:
+                return fmt_usd(v)
+            return fmt_won(v)
 
         cw_color = "#888" if tgt_w == 0 else ("#ff4d4d" if cur_w > tgt_w else "#4d94ff")
 
@@ -908,7 +949,7 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'<div style="font-size:13px;font-weight:600;color:#aaa;margin-top:5px;">{r["qty"]:,.0f}주</div></div>'
             f'<div style="flex:1.1;min-width:0;text-align:right;overflow:hidden;">'
             f'<div style="font-size:16px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{money(r["eval_amt"])}</div>'
-            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
+            f'<div style="font-size:12px;font-weight:700;color:{pc};margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{pa}{money_profit(abs(profit))} ({pa}{abs(profit_pct):.1f}%)</div></div>'
             f'</div>'
             # 2행: 52주하락률 / 목표·현재 / 현재가·평단가
             f'<div style="display:flex;align-items:center;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid #222;">'
@@ -929,12 +970,6 @@ def render_holdings(acct, data, cur_fx, show_krw):
             f'</div>'
             f'</div>',
             unsafe_allow_html=True)
-
-        # 종목 편집 버튼 (작게)
-        if "_acct" in r and "_idx" in r:
-            if st.button("수정", key=f"edit_{r['_acct']}_{r['_idx']}_{i}"):
-                st.session_state["_open_edit"] = (r["_acct"], r["_idx"])
-                st.rerun()
 
 
 def summary_block(eval_krw, buy_krw, big=True):
@@ -970,13 +1005,17 @@ _pe = st.session_state.pop("_open_edit", None)
 if _pe:
     edit_stock_dialog(_pe[0], _pe[1])
 
-_top = st.columns([3, 1])
+_top = st.columns([2.4, 1, 1])
 with _top[0]:
     _total_ph = st.empty()
 with _top[1]:
     st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
     if st.button("＋ 종목", key="add_asset"):
         add_stock_dialog(_DEFAULT_ACCT)
+with _top[2]:
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+    if st.button("관리", key="manage_all"):
+        manage_all_dialog()
 
 if not st.session_state.portfolios:
     st.info("종목이 없습니다. '＋ 종목'으로 추가해보세요.")
